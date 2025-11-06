@@ -1,4 +1,6 @@
 // index.js - TurboThrill webhook (updated with verification, env overrides, and safety)
+require('dotenv').config();
+
 const express = require('express');
 const fetch = require('node-fetch');
 const bodyParser = require('body-parser');
