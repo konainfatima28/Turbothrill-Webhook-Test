@@ -1,18 +1,13 @@
 # Dockerfile (simple, works without package-lock.json)
-FROM node:20-alpine
+# Use official Node.js image
+FROM node:18
 
-# create app dir
-WORKDIR /app
+WORKDIR /usr/src/app
 
-# copy package.json and install production deps
-COPY package.json package-lock.json* ./
-
-# Use npm install and omit dev dependencies. This works even if package-lock.json missing.
+COPY package*.json ./
 RUN npm install --omit=dev
 
-# copy remaining files
 COPY . .
 
 EXPOSE 3000
-
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
