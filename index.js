@@ -1,4 +1,4 @@
-// index.js - TurboThrill webhook (patched for safety, token health checks, and tuned OpenAI)
+// index.js - TurboBot webhook (merged)
 require('dotenv').config(); // optional for local .env support; harmless in Render
 
 const express = require('express');
@@ -29,6 +29,43 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45"); // slightly m
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
+
+// ----- Small heuristics & regex (merged from user snippet)
+const GREETING_REGEX = /^(hi|hello|hey|hii|hola|namaste|yo|salaam|gm|good morning)\b/i;
+const PURCHASE_REGEX = /\b(buy|order|bought|purchased|link|book)\b/i;
+const SAFETY_KEYWORDS = /(spark|sparks|fire|danger|safe)/i;
+
+// helper: detect language by script / simple hinglish heuristics
+function detectLangByScript(text) {
+  const HINDI_RE = /[ऀ-ॿ]/;
+  const TAMIL_RE = /[\u0B80-\u0BFF]/;
+  const TELUGU_RE = /[\u0C00-\u0C7F]/;
+  if (!text) return 'en';
+  if (HINDI_RE.test(text)) return 'hi';
+  if (TAMIL_RE.test(text)) return 'ta';
+  if (TELUGU_RE.test(text)) return 'te';
+  if (/\b(bhai|bro|demo|kya|ka|kaha|jaldi)\b/i.test(text)) return 'hi'; // hinglish heuristic
+  return 'en';
+}
+
+function getGreeting(lang) {
+  const map = {
+    en: `Hey rider 👋 Have you checked Turbo Thrill V5 yet?\nMade with our Special Volcanic Alloy — throws epic sparks! ⚡\nWant the demo or Flipkart link?`,
+    hi: `हे राइडर 👋 क्या आपने Turbo Thrill V5 देखा?\nSpecial Volcanic Alloy से बना है — जब घिसता है तो जबरदस्त स्पार्क्स निकलते हैं! ⚡\nडेमो चाहिए या Flipkart लिंक दूँ?`
+  };
+  return map[lang] || map.en;
+}
+
+async function forwardToMake(payload) {
+  if (!MAKE_WEBHOOK_URL) return;
+  try {
+    await fetch(MAKE_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+  } catch(e){ console.error('Make forward error', e); }
+}
 
 // ---- DEDUPE CACHE + INTENT DETECTION ----
 const dedupeCache = new Map();
@@ -131,13 +168,7 @@ async function sendWhatsAppText(to, text) {
 
 // ----- Tuned system prompt + language-aware OpenAI call -----
 const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) => 
-`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?
-Price ~₹498 — grab it here: ${FLIPKART_LINK}
-
-Demo dekho: ${DEMO_VIDEO_LINK} ⚡
-
-Use only in open safe space; avoid fuel/people. 😎
-`.trim();
+`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\nPrice ~₹498 — grab it here: ${FLIPKART_LINK}\n\nDemo dekho: ${DEMO_VIDEO_LINK} ⚡\n\nUse only in open safe space; avoid fuel/people. 😎\n`.trim();
 
 const tunedSystemPrompt = `
 You are TurboBot MAX v2 — the official WhatsApp sales assistant for Turbo Thrill V5 Obsidian Feet Slider.
@@ -244,7 +275,7 @@ async function callOpenAI(userMessage, userLang = 'en') {
 
     if (!j || !j.choices || !j.choices[0] || !j.choices[0].message) {
       console.error('OpenAI unexpected response:', JSON.stringify(j).slice(0, 1000));
-      return OPENAI_FALLBACK_REPLY;
+      return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
     }
 
     let text = j.choices[0].message.content.trim();
@@ -259,11 +290,11 @@ async function callOpenAI(userMessage, userLang = 'en') {
       text = text.split(' ').slice(0, 90).join(' ') + '...';
     }
 
-    if (!text) return OPENAI_FALLBACK_REPLY;
+    if (!text) return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
     return text;
   } catch (e) {
     console.error('OpenAI call failed:', e && e.message ? e.message : e);
-    return OPENAI_FALLBACK_REPLY;
+    return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
   }
 }
 
@@ -300,9 +331,32 @@ app.post('/webhook', async (req, res) => {
     const from = message.from;
     const text = (message.text && message.text.body) || '';
     const isHindi = /[ऀ-ॿ]/.test(text);
-    const userLang = isHindi ? 'hi' : 'en';
+    const userLang = detectLangByScript(text) || (isHindi ? 'hi' : 'en');
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
+
+    // 1) Greeting short-circuit (from user's snippet)
+    if (GREETING_REGEX.test((text || '').trim())) {
+      const greet = getGreeting(userLang);
+      await sendWhatsAppText(from, greet);
+      await forwardToMake({from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+
+    // 2) Quick FAQ match (keywords) - sparks info
+    const lower = text.toLowerCase();
+    if (/\b(spark|sparks)\b/.test(lower)) {
+      const reply = userLang === 'hi' ? 'हाँ bro — sparks visual effect हैं, demo के लिए open space में use करो.' : 'Yes bro — sparks are a visual demo effect. Use only in open safe spaces.';
+      await sendWhatsAppText(from, reply);
+      await forwardToMake({from, text, aiReply: reply, userLang, intent:'info_sparks', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+    if (PURCHASE_REGEX.test(lower)) {
+      const reply = `Price ≈ ₹498 — grab here 👇 ${FLIPKART_LINK}`;
+      await sendWhatsAppText(from, reply);
+      await forwardToMake({from, text, aiReply: reply, userLang, intent:'buy', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
 
     // ===== dedupe check - inside async handler (safe to await) =====
     const intent = detectIntent(text);
@@ -334,7 +388,7 @@ app.post('/webhook', async (req, res) => {
         await fetch(MAKE_WEBHOOK_URL, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString() })
+          body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
         });
       } catch (e) {
         console.error('Make webhook error', e && e.message ? e.message : e);
@@ -348,5 +402,5 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('TurboBot webhook running (v2)'));
+app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged)'));
 app.listen(PORT, () => console.log(`Running on ${PORT}`));
