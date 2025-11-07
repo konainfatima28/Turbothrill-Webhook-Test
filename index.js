@@ -28,8 +28,8 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.25");
-const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "";
-const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "";
+const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
+const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
 // ----- Runtime state
