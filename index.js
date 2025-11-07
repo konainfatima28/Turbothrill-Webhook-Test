@@ -1,4 +1,4 @@
-// index.js - TurboThrill webhook (patched for safety & token health checks)
+// index.js - TurboThrill webhook (patched for safety, token health checks, and tuned OpenAI)
 require('dotenv').config(); // optional for local .env support; harmless in Render
 
 const express = require('express');
@@ -25,7 +25,7 @@ const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
-const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.25");
+const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45"); // slightly more excited tone
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
@@ -129,35 +129,73 @@ async function sendWhatsAppText(to, text) {
   }
 }
 
-// ----- System prompt (tuned)
-const systemPrompt = `You are TurboBot — short, confident sales assistant for Turbo Thrill.
-- Keep replies 1–3 short sentences (skimmable).
-- Offer a single clear CTA (Watch Demo / Flipkart Offer / Help).
-- Vary wording; avoid repeating identical phrases.
-- Use emojis sparingly.
-- Match user's language (Hindi by Devanagari detection).
-Examples:
-User: "Demo"
-Assistant: "Watch demo (10s): ${DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link."
-User: "Buy"
-Assistant: "Grab it on Flipkart: ${FLIPKART_LINK}. Need ordering help?"
-User: "Help"
-Assistant: "Sure — how can I help? Support: ${SUPPORT_CONTACT}."
-Respond to the user's message now.`;
+// ----- Tuned system prompt + language-aware OpenAI call -----
+const OPENAI_FALLBACK_REPLY = `Thanks — I've noted your message. Want the Flipkart link or demo?`;
 
-async function callOpenAI(userMessage) {
+const tunedSystemPrompt = `You are TurboBot — the AI sales assistant for Turbo Thrill.
+Tone & persona:
+- Confident, bold, excited (biker brand). Use motivating, action-oriented language.
+- Short, skimmable, high-conversion: 1–3 short sentences + 1 CTA.
+- NEVER provide instructions that could be dangerous or illegal.
+Behavior rules:
+- Always offer exactly one clear CTA when appropriate (Watch Demo / Flipkart Offer / Help).
+- If user expresses buying intent, include the Flipkart link exactly once.
+- Use emojis sparingly (max 1 emoji) and only to emphasize excitement (🔥, 👍).
+- Keep replies under ~60 words. Use simple sentences.
+Language:
+- Match the user's language exactly (English, Hindi (Devanagari), or Hinglish). Use polite, friendly phrasing.
+- If language is Hindi, reply in Hindi (Devanagari). If Hinglish (Latin script but Indian phrases), reply in short Hinglish.
+Safety:
+- If the user asks for dangerous instructions (fire, explosive, illegal modifications), refuse politely and offer support contact.
+Output format:
+- Plain text only (no markdown links). Provide full URLs for links.
+`;
+
+async function callOpenAI(userMessage, userLang = 'en') {
   if (!OPENAI_KEY) {
     console.warn('OPENAI_KEY not set — skipping OpenAI call.');
     return '';
   }
 
+  // Quick safety filter before calling
   const lower = (userMessage || '').toLowerCase();
-  const disallowedKeywords = ['how to make', 'how to create fire', 'harmful', 'explode', 'detonate', 'arson', 'poison'];
+  const disallowedKeywords = ['how to make', 'explode', 'detonate', 'arson', 'poison', 'create fire', 'manufacture'];
   for (const kw of disallowedKeywords) {
     if (lower.includes(kw)) {
-      return `I can't help with instructions that are dangerous or illegal. Please contact human support at ${SUPPORT_CONTACT || 'our support team'} for safe alternatives.`;
+      return `I can't assist with dangerous or illegal instructions. Please contact support: ${SUPPORT_CONTACT || 'Support'}.`;
     }
   }
+
+  // Few-shot examples to shape style + language
+  const examples = [
+    // English
+    { role: "user", content: "Demo" },
+    { role: "assistant", content: `Watch demo (10s): ${DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link.` },
+    { role: "user", content: "Buy" },
+    { role: "assistant", content: `Grab it on Flipkart: ${FLIPKART_LINK}. Want help with order or COD options?` },
+
+    // Hindi (Devanagari)
+    { role: "user", content: "डेमो" },
+    { role: "assistant", content: `डेमो देखें (10s): ${DEMO_VIDEO_LINK}। खरीदना है तो 'BUY' लिखें।` },
+
+    // Hinglish
+    { role: "user", content: "Demo bhai" },
+    { role: "assistant", content: `Demo yahan dekho: ${DEMO_VIDEO_LINK} 🔥 Reply BUY for Flipkart link.` }
+  ];
+
+  // Build messages array
+  const messages = [
+    { role: "system", content: tunedSystemPrompt },
+    ...examples,
+    { role: "user", content: userMessage }
+  ];
+
+  const payload = {
+    model: process.env.OPENAI_MODEL || OPENAI_MODEL,
+    messages: messages,
+    max_tokens: Math.min(300, MAX_TOKENS || 200),
+    temperature: TEMPERATURE
+  };
 
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -166,22 +204,32 @@ async function callOpenAI(userMessage) {
         Authorization: `Bearer ${OPENAI_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }],
-        max_tokens: MAX_TOKENS,
-        temperature: TEMPERATURE
-      })
+      body: JSON.stringify(payload)
     });
     const j = await resp.json();
+
     if (!j || !j.choices || !j.choices[0] || !j.choices[0].message) {
       console.error('OpenAI unexpected response:', JSON.stringify(j).slice(0, 1000));
-      return '';
+      return OPENAI_FALLBACK_REPLY;
     }
-    return j.choices[0].message.content.trim();
+
+    let text = j.choices[0].message.content.trim();
+
+    // Post-processing rules:
+    // Replace placeholder bracket links if present
+    text = text.replace(/\[Watch Demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
+    text = text.replace(/\[watch demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
+
+    // Trim length (safety)
+    if (text.split(' ').length > 90) {
+      text = text.split(' ').slice(0, 90).join(' ') + '...';
+    }
+
+    if (!text) return OPENAI_FALLBACK_REPLY;
+    return text;
   } catch (e) {
     console.error('OpenAI call failed:', e && e.message ? e.message : e);
-    return '';
+    return OPENAI_FALLBACK_REPLY;
   }
 }
 
@@ -230,12 +278,21 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // generate reply via OpenAI (guarded)
-    const aiReply = await callOpenAI(text);
-    const finalReply = (aiReply && aiReply.length) ? aiReply : `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
+    // generate reply via OpenAI (guarded & language-aware)
+    let aiReply = await callOpenAI(text, userLang);
+
+    // If AI didn't produce anything, fallback
+    if (!aiReply || !aiReply.trim()) {
+      aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
+    }
+
+    // If the user intent is BUY but AI didn't include Flipkart link, append it
+    if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
+      aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
+    }
 
     // attempt send (this is guarded inside sendWhatsAppText)
-    await sendWhatsAppText(from, finalReply);
+    await sendWhatsAppText(from, aiReply);
 
     // forward to Make (optional)
     if (MAKE_WEBHOOK_URL) {
@@ -243,7 +300,7 @@ app.post('/webhook', async (req, res) => {
         await fetch(MAKE_WEBHOOK_URL, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply: finalReply, userLang, timestamp: new Date().toISOString() })
+          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString() })
         });
       } catch (e) {
         console.error('Make webhook error', e && e.message ? e.message : e);
