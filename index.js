@@ -11,11 +11,9 @@ app.use(bodyParser.json());
 // ----- Defensive global handlers (prevent process exit on uncaught errors)
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
-  // do not exit; render will keep process alive for debugging
 });
 process.on('unhandledRejection', (reason, p) => {
   console.error('UNHANDLED REJECTION:', reason);
-  // do not exit; just log
 });
 
 // ----- Environment variables
@@ -31,7 +29,6 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.25");
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
-
 
 // ---- DEDUPE CACHE + INTENT DETECTION ----
 const dedupeCache = new Map();
@@ -132,29 +129,20 @@ async function sendWhatsAppText(to, text) {
   }
 }
 
-// ----- System prompt and OpenAI call (guarded)
-// normalize & dedupe
-const intent = detectIntent(text);
-if (shouldSkipDuplicate(from, intent, text)) {
-  console.log(`Skipping duplicate ${intent} from ${from}`);
-  // short confirmation to avoid spamming full reply
-  await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
-  return res.sendStatus(200);
-}
-
+// ----- System prompt (tuned)
 const systemPrompt = `You are TurboBot — short, confident sales assistant for Turbo Thrill.
 - Keep replies 1–3 short sentences (skimmable).
 - Offer a single clear CTA (Watch Demo / Flipkart Offer / Help).
 - Vary wording; avoid repeating identical phrases.
 - Use emojis sparingly.
-- Match user's language (Hindi by Devanagari detection). 
+- Match user's language (Hindi by Devanagari detection).
 Examples:
 User: "Demo"
-Assistant: "Watch demo (10s): ${process.env.DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link."
+Assistant: "Watch demo (10s): ${DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link."
 User: "Buy"
-Assistant: "Grab it on Flipkart: ${process.env.FLIPKART_LINK}. Need ordering help?"
+Assistant: "Grab it on Flipkart: ${FLIPKART_LINK}. Need ordering help?"
 User: "Help"
-Assistant: "Sure — how can I help? You can ask about demo, price, or delivery. Support: ${process.env.SUPPORT_CONTACT || 'our support team'}."
+Assistant: "Sure — how can I help? Support: ${SUPPORT_CONTACT}."
 Respond to the user's message now.`;
 
 async function callOpenAI(userMessage) {
@@ -233,6 +221,14 @@ app.post('/webhook', async (req, res) => {
     const userLang = isHindi ? 'hi' : 'en';
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
+
+    // ===== dedupe check - inside async handler (safe to await) =====
+    const intent = detectIntent(text);
+    if (shouldSkipDuplicate(from, intent, text)) {
+      console.log(`Skipping duplicate ${intent} from ${from}`);
+      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+      return res.sendStatus(200);
+    }
 
     // generate reply via OpenAI (guarded)
     const aiReply = await callOpenAI(text);
