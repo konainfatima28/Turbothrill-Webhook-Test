@@ -1,4 +1,4 @@
-// index.js - TurboThrill webhook (patched for FAQ matching, embeddings fallback, safety, token health)
+// index.js - TurboThrill webhook (patched for safety, token health checks, and tuned OpenAI)
 require('dotenv').config(); // optional for local .env support; harmless in Render
 
 const express = require('express');
@@ -29,11 +29,6 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45"); // slightly m
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
-
-// FAQ / Embeddings flags
-const USE_EMBEDDINGS = (process.env.USE_EMBEDDINGS || "false").toLowerCase() === "true";
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-const EMBEDDING_SIMILARITY_THRESHOLD = parseFloat(process.env.EMBEDDING_SIMILARITY_THRESHOLD || "0.75");
 
 // ---- DEDUPE CACHE + INTENT DETECTION ----
 const dedupeCache = new Map();
@@ -134,279 +129,100 @@ async function sendWhatsAppText(to, text) {
   }
 }
 
-// ----- Embedded FAQ knowledge base (English + Hinglish)
-const FAQS = [
-  {
-    id: 1,
-    q: "Does Turbo Thrill V5 really produce sparks?",
-    a_en: "Yes — when the slider is dragged on rough road surfaces it produces dramatic sparks used for visual effect in demos. Use only in safe, open areas.",
-    a_hinglish: "Haan bro — jab slider rough road par ghishta hai toh flashy sparks nikalte hain. Demo ke liye safe, khula area use karna.",
-    tags: ["sparks","demo","safety"]
-  },
-  {
-    id: 2,
-    q: "Is it safe? Will it start a fire?",
-    a_en: "The sparks are visual and not meant to ignite materials. Avoid using near flammable liquids, fuel tanks, or crowds. Always demo on concrete/rough surfaces and keep a safe distance.",
-    a_hinglish: "Sparks visual purpose ke liye hain — kisi cheez ko jalane ke liye nahi. Petrol ya aag ke paas nahi use karna. Hamesha open concrete surface par safe distance rakho.",
-    tags: ["safety","fire"]
-  },
-  {
-    id: 3,
-    q: "What is included in the box?",
-    a_en: "You get 1 Feet Slider, 3M VHB tape and Fevikwik for attachment.",
-    a_hinglish: "Box me milta hai: 1 feet slider, 3M VHB tape aur Fevikwik.",
-    tags: ["box","contents"]
-  },
-  {
-    id: 4,
-    q: "How to attach it to shoes?",
-    a_en: "Clean the shoe surface, peel the 3M tape, press the slider firmly for 60 seconds and add Fevikwik if needed. Let adhesive cure before riding.",
-    a_hinglish: "Shoe saaf karo, tape lagao, 60 sec tak zor se press karo. Fevikwik laga ke set hone do phir use karo.",
-    tags: ["installation","howto"]
-  },
-  {
-    id: 5,
-    q: "How long does it last?",
-    a_en: "Lifetime varies with use — heavy riders will wear it faster. Typical everyday use lasts several weeks to months.",
-    a_hinglish: "Use pe depend karta hai — heavy use me jaldi ghis sakta hai, normal use me kuch hafton se months tak chal sakta hai.",
-    tags: ["durability","lifetime"]
-  },
-  {
-    id: 6,
-    q: "Which shoes or boots is it compatible with?",
-    a_en: "Works best on hard-soled riding shoes or boots where you can glue/press the slider. Not recommended for very soft or stretchy materials.",
-    a_hinglish: "Hard-soled riding shoes/boots par best kaam karta hai. Soft shoes me theek se chipkega nahi.",
-    tags: ["compatibility","shoes"]
-  },
-  {
-    id: 7,
-    q: "What material is it made of?",
-    a_en: "The Flipkart spec lists the material as 'stone,' while we market the product as made from our proprietary Special Volcanic Alloy for performance. We don't disclose exact composition.",
-    a_hinglish: "Flipkart listing me “stone” likha hai; brand ke material ko hum Special Volcanic Alloy bolte hain. Exact formula secret hai.",
-    tags: ["material","composition"]
-  },
-  {
-    id: 8,
-    q: "Does it come with a striker?",
-    a_en: "No — the package does not include a striker or knife. Use the included tape/adhesive for mounting.",
-    a_hinglish: "Nahi, striker included nahi hai. Sirf slider + tape + Fevikwik milta hai.",
-    tags: ["box","contents"]
-  },
-  {
-    id: 9,
-    q: "Is COD available and what is the return policy?",
-    a_en: "Flipkart lists Cash on Delivery availability and a 7-day return policy — check the product page at checkout for your pin code.",
-    a_hinglish: "Flipkart pe COD available dikh raha hai aur 7 din ki return policy hai — checkout par pin check karo.",
-    tags: ["returns","cod","flipkart"]
-  },
-  {
-    id: 10,
-    q: "Will it damage my shoe or bike?",
-    a_en: "If attached and used correctly it should not damage the shoe. Avoid continuous hard grinding; misuse can wear the sole. Always follow the mounting guide.",
-    a_hinglish: "Sahi tarah lagane par shoe damage nahi hoga. Lekin continuous hard grinding se sole ghis sakta hai — instructions follow karo.",
-    tags: ["damage","safety"]
-  },
-  {
-    id: 11,
-    q: "Can I use it on road traffic?",
-    a_en: "No — don't intentionally create sparks in traffic or near pedestrians. Use only in controlled, safe environments.",
-    a_hinglish: "Road traffic me intentionally sparks mat karo — public safety pe dhyan do.",
-    tags: ["safety","legal"]
-  },
-  {
-    id: 12,
-    q: "How heavy is it?",
-    a_en: "Approximately 60 g.",
-    a_hinglish: "Weight lagbhag 60 g hai.",
-    tags: ["weight","specs"]
-  },
-  {
-    id: 13,
-    q: "Why are some reviews negative?",
-    a_en: "Some users complain about fit, expectations, or early wear. We recommend reading the mounting instructions and testing in a safe demo to set expectations.",
-    a_hinglish: "Kuch reviews fit/wear ko lekar negative hain — instructions dhang se follow karo aur demo me check karo.",
-    tags: ["reviews","expectations"]
-  },
-  {
-    id: 14,
-    q: "Can I get spare sliders?",
-    a_en: "Check our Flipkart store for 'other sellers' or reorder from the same listing (Pack of 1 currently). You can contact the seller via Flipkart for spare parts.",
-    a_hinglish: "Flipkart store ya same listing se spare dekh lo; seller se bhi contact kar sakte ho.",
-    tags: ["spare","purchase"]
-  },
-  {
-    id: 15,
-    q: "Is there any maintenance?",
-    a_en: "Wipe with a dry cloth after use; avoid water immersion. Reapply adhesive if loosened.",
-    a_hinglish: "Use ke baad dry cloth se wipe karo; water me doobo mat. Agar loose ho toh dubara glue karo.",
-    tags: ["maintenance","care"]
-  }
-];
-
-// Precomputed embeddings cache for FAQ (populated if USE_EMBEDDINGS)
-let faqEmbeddings = null;
-
-// ----- Utility: cosine similarity
-function dot(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
-  return s;
-}
-function magnitude(a) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * a[i];
-  return Math.sqrt(s);
-}
-function cosineSim(a, b) {
-  const denom = magnitude(a) * magnitude(b);
-  if (denom === 0) return 0;
-  return dot(a, b) / denom;
-}
-
-// ----- Embeddings functions (optional, used when USE_EMBEDDINGS=true)
-async function fetchEmbedding(text) {
-  if (!OPENAI_KEY) throw new Error('OPENAI_KEY missing for embeddings');
-  try {
-    const resp = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ model: EMBEDDING_MODEL, input: text })
-    });
-    const j = await resp.json();
-    if (j && j.data && j.data[0] && j.data[0].embedding) {
-      return j.data[0].embedding;
-    } else {
-      console.error('Embedding response unexpected:', JSON.stringify(j).slice(0,1000));
-      return null;
-    }
-  } catch (e) {
-    console.error('Embedding request failed:', e && e.message ? e.message : e);
-    return null;
-  }
-}
-
-async function prepareFaqEmbeddings() {
-  if (!USE_EMBEDDINGS) return;
-  if (!OPENAI_KEY) {
-    console.warn('USE_EMBEDDINGS is true but OPENAI_KEY is not set. Skipping embeddings preparation.');
-    return;
-  }
-  try {
-    console.log('Preparing FAQ embeddings (this may take a few seconds)...');
-    const promises = FAQS.map(f => fetchEmbedding(f.q));
-    const results = await Promise.all(promises);
-    faqEmbeddings = results.map((emb, idx) => ({ emb, id: FAQS[idx].id }));
-    console.log('FAQ embeddings prepared for', faqEmbeddings.filter(x => x.emb).length, 'items');
-  } catch (e) {
-    console.error('prepareFaqEmbeddings error:', e && e.message ? e.message : e);
-    faqEmbeddings = null;
-  }
-}
-// prepare at startup if enabled (non-blocking)
-if (USE_EMBEDDINGS) {
-  prepareFaqEmbeddings().catch(e => console.error('prepareFaqEmbeddings caught', e));
-}
-
-// ----- FAQ matching: exact/keyword + optional embeddings fallback
-function keywordsForFaq(faq) {
-  // derive a simple keyword set: split q and tags
-  const qkeys = (faq.q || '').toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-  const tagkeys = (faq.tags || []).map(t => t.toLowerCase());
-  return Array.from(new Set([...qkeys, ...tagkeys]));
-}
-
-function simpleMatchFAQ(text) {
-  if (!text || text.trim().length === 0) return null;
-  const t = text.toLowerCase();
-  for (const f of FAQS) {
-    // exact phrase match on question
-    if (t.includes(f.q.toLowerCase().replace(/\?/g, '').trim())) {
-      return f;
-    }
-    // keyword partial match: require 2 keywords to be present to reduce false positives
-    const keys = keywordsForFaq(f).filter(k => k.length > 2);
-    let matched = 0;
-    for (const k of keys) {
-      if (t.includes(k)) matched++;
-      if (matched >= 2) return f;
-    }
-  }
-  return null;
-}
-
-async function fuzzyMatchFAQWithEmbeddings(text) {
-  if (!USE_EMBEDDINGS) return null;
-  if (!faqEmbeddings || faqEmbeddings.length === 0) {
-    // attempt to prepare on-demand
-    await prepareFaqEmbeddings();
-  }
-  if (!faqEmbeddings) return null;
-  const embed = await fetchEmbedding(text);
-  if (!embed) return null;
-  let best = { id: null, score: -1 };
-  for (const fe of faqEmbeddings) {
-    if (!fe.emb) continue;
-    const s = cosineSim(embed, fe.emb);
-    if (s > best.score) {
-      best = { id: fe.id, score: s };
-    }
-  }
-  if (best.id && best.score >= EMBEDDING_SIMILARITY_THRESHOLD) {
-    return FAQS.find(f => f.id === best.id) || null;
-  }
-  return null;
-}
-
-async function matchFAQ(text, isHindi) {
-  // 1) try simple deterministic checks
-  const simple = simpleMatchFAQ(text);
-  if (simple) return { faq: simple, method: 'simple', score: 1.0 };
-
-  // 2) optional embeddings fallback
-  if (USE_EMBEDDINGS && OPENAI_KEY) {
-    try {
-      const fuzzy = await fuzzyMatchFAQWithEmbeddings(text);
-      if (fuzzy) return { faq: fuzzy, method: 'embeddings', score: 0.0 /*score not passed through*/ };
-    } catch (e) {
-      console.error('matchFAQ embeddings error:', e && e.message ? e.message : e);
-    }
-  }
-
-  // no match
-  return null;
-}
-
 // ----- Tuned system prompt + language-aware OpenAI call -----
 const OPENAI_FALLBACK_REPLY = `
 You are TurboBot — the official AI sales assistant for Turbo Thrill.
 `;
 
 const tunedSystemPrompt = `
-You are TurboBot — the official AI sales assistant for Turbo Thrill.
+You are *TurboBot MAX* — the official WhatsApp sales assistant for Turbo Thrill V5 Obsidian Feet Slider.
 
-Your mission: convert leads into buyers on Flipkart using powerful emotional, fun, Hinglish-driven messages.
-Tone: confident, friendly, Indian rider vibe. Short sentences. Smart emojis.
-Personality: like a cool biker bro who knows his gear. Never pushy, always smooth.
+🎯 *Goal:* Convert every chat into a Flipkart sale using a fun, emotional Hinglish tone (like a cool biker friend).  
+Never sound like a corporate agent. You’re chill, confident, and reply fast.
 
-Key info:
-- Product: Turbo Thrill V5 Obsidian Feet Slider
-- Material: Special Volcanic Alloy
-- Unique Feature: produces MASSIVE SPARKS when sliding on road ⚡ (used for demo thrill)
-- Selling platform: Flipkart (use the provided link)
-- Price range: ₹498–₹599
-- Always reassure quality + Flipkart trust + fast delivery.
-- Use Hindi, Hinglish, or English based on user input.
-- If user sounds unsure, use curiosity ("Want to see the sparks demo? 👀")
-- If user asks "How it works", explain in thrill tone, not technical.
-- Never give dangerous instructions. Say: “For safety, always test in open space”.
-- End replies with one call-to-action (Flipkart link, demo video, or a fun emoji).
+---
 
+### 🧩 PRODUCT INFO
+- Brand: Turbo Thrill
+- Product: Turbo Thrill V5 Obsidian Feet Slider (for bikers)
+- Material: Special Volcanic Alloy (proprietary)
+- Feature: Creates massive sparks when dragged on the road ⚡
+- Box Includes: 1 slider, 3M VHB tape, Fevikwik (for mounting)
+- Weight: ~60g
+- Price: ₹498–₹599 (varies)
+- Platform: Flipkart (always give the official Bitly link)
+- Demo Video: YouTube short link
+- Safety note: “Use only in open safe space; not near flammable areas.”
 
-Short message format (3–4 lines max).
+---
 
+### 💬 YOUR PERSONALITY
+- Language: Hinglish (mix of Hindi + English, chill tone)
+- Emotion: Excited, friendly, confident, helpful
+- Style: Short sentences. Always 2–4 lines max.
+- You call customers "bro", "bhai", or "rider".
+- You sprinkle emojis like ⚡🔥😎🏍 naturally, not too many.
+- You reply like a real person, not a bot.
+
+---
+
+### 🚦 CONVERSATION RULES
+
+1️⃣ *Instant Hook:* 
+   When a new lead messages (from Meta ad or cold start), instantly greet and hook them.
+   Example:
+   “Yo bro! 👋 Turbo Thrill V5 dekha kya? Ye bana hai Special Volcanic Alloy se — jab road pe ghishta hai toh massive sparks nikalta hai ⚡😎  
+   Demo chahiye ya Flipkart link bheju?”
+
+2️⃣ *Detect Intent:*
+   - If user asks price / link / where to buy → Give Flipkart link instantly.  
+     Example: “Price ₹498 chal raha hai Flipkart pe bhai 👇 https://bit.ly/ttv5-wa”
+   - If user asks about sparks → “Haan bro, ye sparks real hain, but safe hain — sirf thrill ke liye 😎”
+   - If user asks about safety → “Bilkul safe bro, bas open area me use karna — petrol ke paas mat karna ⚠”
+   - If user is confused → Offer to show demo: “Ek chhoti demo video bheju? ⚡”
+
+3️⃣ *Create Urgency:*
+   If user delays or says “later”, reply with emotional push:
+   “Arre bro, ye ₹498 wala offer aaj raat tak hi hai Flipkart pe 😱  
+   Baad me price jump kar jata hai!”
+
+4️⃣ *Language Handling:*
+   - If user types in Hindi → reply full in Hinglish.
+   - If user types in English → reply in cool Indian English.
+   - Detect language automatically.
+
+5️⃣ *Emotional Close (End every chat with CTA):*
+   Always end with one call-to-action:
+   - “Check link bro 👇 https://bit.ly/ttv5-wa”
+   - “Order kar le bhai, stock jaldi khatam hota hai 🔥”
+
+6️⃣ *FAQ Handling:*
+   Use these short FAQ replies (instant answers):
+   - Sparks: “Yes bro, real sparks ⚡ just for thrill demo — safe & flashy!”
+   - Safety: “Use open road only, far from fuel or people 👌”
+   - Box: “1 slider + 3M VHB tape + Fevikwik 🧰”
+   - How to use: “Bas shoe ke neeche chipka de, 60 sec press kar — ready to slide 😎”
+   - Material: “Special Volcanic Alloy — unique to Turbo Thrill 🔥”
+   - Durability: “Depends on use bro — normal riding me kaafi din chal jata hai!”
+
+7️⃣ *Behavior Tracking:*
+   - Always send user’s phone, language, message, and your reply to webhook (Make) for logging.
+   - Don’t ask too many questions — keep the flow fast.
+
+8️⃣ *Forbidden Topics:*
+   - Never mention fire, explosion, or illegal use.
+   - Never promise lifetime durability.
+   - Never insult or argue.
+
+---
+
+If unsure, always prefer Hinglish tone with energy.  
+Keep it fun, natural, and rider-friendly — not like an agent.  
+
+At the end of every chat, push the Flipkart link.  
+You're here to make sales while making it feel like a friendly rider chat. 😎
+
+Short message format (3–4 lines max).
 `;
 
 async function callOpenAI(userMessage, userLang = 'en') {
@@ -526,7 +342,7 @@ app.post('/webhook', async (req, res) => {
     const isHindi = /[ऀ-ॿ]/.test(text);
     const userLang = isHindi ? 'hi' : 'en';
 
-    console.log(`message from ${from} lang=${userLang} text="${(text||'').slice(0,200)}"`);
+    console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
 
     // ===== dedupe check - inside async handler (safe to await) =====
     const intent = detectIntent(text);
@@ -536,33 +352,15 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ===== FAQ matching (first) =====
-    let botAnswerType = 'AI'; // default
-    let aiReply = '';
-    try {
-      const faqMatch = await matchFAQ(text, isHindi);
-      if (faqMatch && faqMatch.faq) {
-        const f = faqMatch.faq;
-        aiReply = isHindi ? f.a_hinglish : f.a_en;
-        botAnswerType = 'FAQ';
-        console.log(`FAQ matched (method=${faqMatch.method}) -> faq id=${f.id}`);
-      } else {
-        // No FAQ match: continue to OpenAI
-        aiReply = await callOpenAI(text, userLang);
-        botAnswerType = 'AI';
-      }
-    } catch (e) {
-      console.error('FAQ matching error (continuing to OpenAI):', e && e.message ? e.message : e);
-      aiReply = await callOpenAI(text, userLang);
-      botAnswerType = 'AI';
-    }
+    // generate reply via OpenAI (guarded & language-aware)
+    let aiReply = await callOpenAI(text, userLang);
 
     // If AI didn't produce anything, fallback
     if (!aiReply || !aiReply.trim()) {
       aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
     }
 
-    // If the user intent is BUY but reply didn't include Flipkart link, append it
+    // If the user intent is BUY but AI didn't include Flipkart link, append it
     if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
       aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
     }
@@ -570,13 +368,13 @@ app.post('/webhook', async (req, res) => {
     // attempt send (this is guarded inside sendWhatsAppText)
     await sendWhatsAppText(from, aiReply);
 
-    // forward to Make (optional) with botAnswerType for analytics
+    // forward to Make (optional)
     if (MAKE_WEBHOOK_URL) {
       try {
         await fetch(MAKE_WEBHOOK_URL, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString(), botAnswerType })
+          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString() })
         });
       } catch (e) {
         console.error('Make webhook error', e && e.message ? e.message : e);
