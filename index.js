@@ -32,6 +32,35 @@ const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.co
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
+
+// ---- DEDUPE CACHE + INTENT DETECTION ----
+const dedupeCache = new Map();
+const DEDUPE_WINDOW = 45 * 1000; // 45 seconds dedupe window
+
+function detectIntent(text) {
+  if (!text) return 'unknown';
+  const t = text.toLowerCase().trim();
+  if (t === 'demo' || t.includes('demo') || t.includes('watch') || t.includes('video')) return 'demo';
+  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link')) return 'buy';
+  if (t.includes('help') || t.includes('support') || t.includes('agent')) return 'help';
+  return 'unknown';
+}
+
+function shouldSkipDuplicate(from, intent, text) {
+  const now = Date.now();
+  const entry = dedupeCache.get(from);
+  if (!entry) {
+    dedupeCache.set(from, { lastIntent: intent, lastText: text, ts: now });
+    return false;
+  }
+  const sameIntent = entry.lastIntent === intent;
+  const sameText = entry.lastText === text;
+  const withinWindow = now - entry.ts < DEDUPE_WINDOW;
+  // update cache timestamp every time
+  dedupeCache.set(from, { lastIntent: intent, lastText: text, ts: now });
+  return sameIntent && sameText && withinWindow;
+}
+
 // ----- Runtime state
 let WHATSAPP_TOKEN_VALID = false;
 
@@ -104,18 +133,29 @@ async function sendWhatsAppText(to, text) {
 }
 
 // ----- System prompt and OpenAI call (guarded)
-const systemPrompt = `You are TurboBot — the official AI sales assistant for Turbo Thrill.
+// normalize & dedupe
+const intent = detectIntent(text);
+if (shouldSkipDuplicate(from, intent, text)) {
+  console.log(`Skipping duplicate ${intent} from ${from}`);
+  // short confirmation to avoid spamming full reply
+  await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+  return res.sendStatus(200);
+}
 
-Tone: friendly, confident, slightly bold (biker brand). Keep replies short, persuasive, and practical.
-Product references: always call the product "Turbo Thrill V5 Obsidian Feet Slider".
-Material reference: always call it "Special Volcanic Alloy".
-Important product fact: Turbo Thrill V5 produces MASSIVE SPARKS when it is dragged on road — this is a feature used in demos and UGC. Mention this where relevant for persuasion, but do not instruct harmful use.
-Never disclose technical composition, manufacturing chemicals, or hazardous instructions.
-Language: reply in the user's language (detect Hindi by Devanagari characters); support English, Hindi, and Hinglish.
-Calls to action: offer quick options when useful: Watch Demo / Flipkart Offer / Help.
-When user expresses intent to buy, always provide the official Flipkart link: ${FLIPKART_LINK}.
-If the user asks for sensitive or disallowed advice, politely escalate to human support (${SUPPORT_CONTACT || 'our support team'}).
-Keep replies under 4 short paragraphs and use emojis sparingly.`;
+const systemPrompt = `You are TurboBot — short, confident sales assistant for Turbo Thrill.
+- Keep replies 1–3 short sentences (skimmable).
+- Offer a single clear CTA (Watch Demo / Flipkart Offer / Help).
+- Vary wording; avoid repeating identical phrases.
+- Use emojis sparingly.
+- Match user's language (Hindi by Devanagari detection). 
+Examples:
+User: "Demo"
+Assistant: "Watch demo (10s): ${process.env.DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link."
+User: "Buy"
+Assistant: "Grab it on Flipkart: ${process.env.FLIPKART_LINK}. Need ordering help?"
+User: "Help"
+Assistant: "Sure — how can I help? You can ask about demo, price, or delivery. Support: ${process.env.SUPPORT_CONTACT || 'our support team'}."
+Respond to the user's message now.`;
 
 async function callOpenAI(userMessage) {
   if (!OPENAI_KEY) {
