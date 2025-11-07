@@ -131,8 +131,14 @@ async function sendWhatsAppText(to, text) {
 
 // ----- Tuned system prompt + language-aware OpenAI call -----
 const OPENAI_FALLBACK_REPLY = `
-You are TurboBot — the official AI sales assistant for Turbo Thrill.
+Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?
+Price ~₹498 — grab it here: ${FLIPKART_LINK}
+
+Demo dekho: ${DEMO_VIDEO_LINK} ⚡
+
+Use only in open safe space; avoid fuel/people. 😎
 `;
+
 
 const tunedSystemPrompt = `
 You are *TurboBot MAX* — the official WhatsApp sales assistant for Turbo Thrill V5 Obsidian Feet Slider.
