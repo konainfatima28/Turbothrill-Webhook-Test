@@ -211,7 +211,7 @@ CONVERSION TACTICS (how to nudge)
 
 LOGGING & FLOW
 - After every reply, POST to the Make webhook (MAKE_WEBHOOK_URL) with {from, text, aiReply, userLang, intent, timestamp}.
-- Set `intent` to one of: greeting | info | demo | buy | safety | escalate | other.
+- Set 'intent' to one of: greeting | info | demo | buy | safety | escalate | other.
 
 END: Always be short, friendly and close with CTA. If unsure, ask a short clarifying question (one-line).
 `;
