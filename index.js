@@ -1,15 +1,14 @@
-// index.js - TurboThrill webhook (final patched file)
-// Features: safety handlers, token health check, robust webhook parsing, dedupe, OpenAI tuned
-require('dotenv').config();
+// index.js - TurboThrill webhook (patched for safety, token health checks, and tuned OpenAI)
+require('dotenv').config(); // optional for local .env support; harmless in Render
 
 const express = require('express');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // using node-fetch v2 (require-compatible)
 const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.json());
 
-// ---- Defensive global handlers ----
+// ----- Defensive global handlers (prevent process exit on uncaught errors)
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
 });
@@ -17,23 +16,23 @@ process.on('unhandledRejection', (reason, p) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
 
-// ----- Environment variables -----
+// ----- Environment variables
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22";
-const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "";
+const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "https://hook.us2.make.com/uek4attuoeyl6ijbdo3o8j30ncr729z3";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
-const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45");
+const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45"); // slightly more excited tone
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
-// ----- DEDUPE CACHE + INTENT DETECTION -----
+// ---- DEDUPE CACHE + INTENT DETECTION ----
 const dedupeCache = new Map();
-const DEDUPE_WINDOW = 45 * 1000; // 45 seconds
+const DEDUPE_WINDOW = 45 * 1000; // 45 seconds dedupe window
 
 function detectIntent(text) {
   if (!text) return 'unknown';
@@ -59,10 +58,10 @@ function shouldSkipDuplicate(from, intent, text) {
   return sameIntent && sameText && withinWindow;
 }
 
-// ----- Runtime state -----
+// ----- Runtime state
 let WHATSAPP_TOKEN_VALID = false;
 
-// ----- Token health check -----
+// ----- Helper: check WhatsApp token health (non-blocking)
 async function checkWhatsAppToken() {
   if (!WHATSAPP_TOKEN || !PHONE_ID) {
     console.warn('WhatsApp token or PHONE_ID missing. Skipping token health check.');
@@ -84,9 +83,10 @@ async function checkWhatsAppToken() {
     WHATSAPP_TOKEN_VALID = false;
   }
 }
+// run check but do not block startup
 checkWhatsAppToken();
 
-// ----- Send to WhatsApp Cloud API (safe) -----
+// ----- Safety-wrapped send to WhatsApp Cloud API
 async function sendWhatsAppText(to, text) {
   try {
     if (!WHATSAPP_TOKEN_VALID) {
@@ -116,6 +116,7 @@ async function sendWhatsAppText(to, text) {
     const textRes = await r.text();
     console.log('WhatsApp API response:', textRes.slice(0, 1000));
 
+    // Helpful check to surface token expiration quickly
     if (textRes && textRes.includes('Error validating access token')) {
       console.error('WhatsApp token expired/invalid. Please rotate the token in Meta Developer Console and update Render env var.');
       WHATSAPP_TOKEN_VALID = false;
@@ -128,22 +129,27 @@ async function sendWhatsAppText(to, text) {
   }
 }
 
-// ----- System prompt - official tone -----
-const systemPrompt = `You are TurboBot — the official AI sales assistant for Turbo Thrill.
-
-Tone: friendly, confident, slightly bold (biker brand). Keep replies short, persuasive, and practical.
-Product references: always call the product "Turbo Thrill V5 Obsidian Feet Slider".
-Material reference: always call it "Special Volcanic Alloy".
-Important product fact: Turbo Thrill V5 produces MASSIVE SPARKS when it is dragged on road — this is a feature used in demos and UGC. Mention this where relevant for persuasion, but do not instruct harmful use.
-Never disclose technical composition, manufacturing chemicals, or hazardous instructions.
-Language: reply in the user's language (detect Hindi by Devanagari characters); support English, Hindi, and Hinglish.
-Calls to action: offer quick options when useful: Watch Demo / Flipkart Offer / Help.
-When user expresses intent to buy, always provide the official Flipkart link: ${FLIPKART_LINK}.
-If the user asks for sensitive or disallowed advice, politely escalate to human support (${SUPPORT_CONTACT || 'our support team'}).
-Keep replies under 4 short paragraphs and use emojis sparingly.`;
-
-// ----- OpenAI call (language-aware, few-shot) -----
+// ----- Tuned system prompt + language-aware OpenAI call -----
 const OPENAI_FALLBACK_REPLY = `Thanks — I've noted your message. Want the Flipkart link or demo?`;
+
+const tunedSystemPrompt = `You are TurboBot — the AI sales assistant for Turbo Thrill.
+Tone & persona:
+- Confident, bold, excited (biker brand). Use motivating, action-oriented language.
+- Short, skimmable, high-conversion: 1–3 short sentences + 1 CTA.
+- NEVER provide instructions that could be dangerous or illegal.
+Behavior rules:
+- Always offer exactly one clear CTA when appropriate (Watch Demo / Flipkart Offer / Help).
+- If user expresses buying intent, include the Flipkart link exactly once.
+- Use emojis sparingly (max 1 emoji) and only to emphasize excitement (🔥, 👍).
+- Keep replies under ~60 words. Use simple sentences.
+Language:
+- Match the user's language exactly (English, Hindi (Devanagari), or Hinglish). Use polite, friendly phrasing.
+- If language is Hindi, reply in Hindi (Devanagari). If Hinglish (Latin script but Indian phrases), reply in short Hinglish.
+Safety:
+- If the user asks for dangerous instructions (fire, explosive, illegal modifications), refuse politely and offer support contact.
+Output format:
+- Plain text only (no markdown links). Provide full URLs for links.
+`;
 
 async function callOpenAI(userMessage, userLang = 'en') {
   if (!OPENAI_KEY) {
@@ -151,6 +157,7 @@ async function callOpenAI(userMessage, userLang = 'en') {
     return '';
   }
 
+  // Quick safety filter before calling
   const lower = (userMessage || '').toLowerCase();
   const disallowedKeywords = ['how to make', 'explode', 'detonate', 'arson', 'poison', 'create fire', 'manufacture'];
   for (const kw of disallowedKeywords) {
@@ -159,14 +166,15 @@ async function callOpenAI(userMessage, userLang = 'en') {
     }
   }
 
+  // Few-shot examples to shape style + language
   const examples = [
     // English
     { role: "user", content: "Demo" },
     { role: "assistant", content: `Watch demo (10s): ${DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link.` },
     { role: "user", content: "Buy" },
-    { role: "assistant", content: `Grab it on Flipkart: ${FLIPKART_LINK}. Need help with order or COD options?` },
+    { role: "assistant", content: `Grab it on Flipkart: ${FLIPKART_LINK}. Want help with order or COD options?` },
 
-    // Hindi
+    // Hindi (Devanagari)
     { role: "user", content: "डेमो" },
     { role: "assistant", content: `डेमो देखें (10s): ${DEMO_VIDEO_LINK}। खरीदना है तो 'BUY' लिखें।` },
 
@@ -175,15 +183,16 @@ async function callOpenAI(userMessage, userLang = 'en') {
     { role: "assistant", content: `Demo yahan dekho: ${DEMO_VIDEO_LINK} 🔥 Reply BUY for Flipkart link.` }
   ];
 
+  // Build messages array
   const messages = [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: tunedSystemPrompt },
     ...examples,
     { role: "user", content: userMessage }
   ];
 
   const payload = {
     model: process.env.OPENAI_MODEL || OPENAI_MODEL,
-    messages,
+    messages: messages,
     max_tokens: Math.min(300, MAX_TOKENS || 200),
     temperature: TEMPERATURE
   };
@@ -206,23 +215,26 @@ async function callOpenAI(userMessage, userLang = 'en') {
 
     let text = j.choices[0].message.content.trim();
 
+    // Post-processing rules:
     // Replace placeholder bracket links if present
     text = text.replace(/\[Watch Demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
     text = text.replace(/\[watch demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
 
-    // Safety trim
-    if (text.split(' ').length > 120) {
-      text = text.split(' ').slice(0, 120).join(' ') + '...';
+    // Trim length (safety)
+    if (text.split(' ').length > 90) {
+      text = text.split(' ').slice(0, 90).join(' ') + '...';
     }
 
-    return text || OPENAI_FALLBACK_REPLY;
+    if (!text) return OPENAI_FALLBACK_REPLY;
+    return text;
   } catch (e) {
     console.error('OpenAI call failed:', e && e.message ? e.message : e);
     return OPENAI_FALLBACK_REPLY;
   }
 }
 
-// ======= GET verification route (for Meta webhook verification) =======
+// ----- Webhook endpoints
+// GET verification for Meta
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -232,136 +244,75 @@ app.get('/webhook', (req, res) => {
       console.log('WEBHOOK_VERIFIED');
       return res.status(200).send(challenge);
     } else {
-      console.warn('WEBHOOK verification failed - tokens do not match');
       return res.sendStatus(403);
     }
   }
   return res.status(200).send('OK');
 });
 
-// ======= POST webhook handler (robust parsing) =======
+// POST webhook handler
 app.post('/webhook', async (req, res) => {
   try {
-    const entries = Array.isArray(req.body.entry) ? req.body.entry : [req.body];
-    const jobs = [];
-
-    for (const entry of entries) {
-      const changes = Array.isArray(entry.changes) ? entry.changes : [{ value: entry }];
-      for (const change of changes) {
-        const value = change.value || {};
-        console.log('incoming body keys (change.value):', Object.keys(value));
-
-        if (Array.isArray(value.messages) && value.messages.length > 0) {
-          for (const message of value.messages) {
-            jobs.push(processIncomingMessage({ raw: value, message }));
-          }
-          continue;
-        }
-
-        if (Array.isArray(value.statuses) && value.statuses.length > 0) {
-          console.log('Received statuses (delivery/read) event. Ignoring in bot flow.');
-          continue;
-        }
-
-        if (Array.isArray(value.contacts) && value.contacts.length > 0) {
-          console.log('Received contacts event:', JSON.stringify(value.contacts).slice(0, 1000));
-          continue;
-        }
-
-        console.log('No user messages found in change.value. Keys:', Object.keys(value));
-      }
+    console.log('incoming body keys:', Object.keys(req.body));
+    const entry = req.body.entry && req.body.entry[0];
+    const changes = entry && entry.changes && entry.changes[0];
+    const value = (changes && changes.value) ? changes.value : req.body;
+    const messages = value.messages || [];
+    if (!messages || messages.length === 0) {
+      console.log('no messages found in payload');
+      return res.sendStatus(200);
     }
-
-    // concurrency-safe execution of jobs
-    const CONCURRENCY = 10;
-    for (let i = 0; i < jobs.length; i += CONCURRENCY) {
-      await Promise.all(jobs.slice(i, i + CONCURRENCY));
-    }
-
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error('webhook handler error (top):', err && err.stack ? err.stack : err);
-    return res.sendStatus(500);
-  }
-});
-
-// ----- Helper: process individual incoming message -----
-async function processIncomingMessage({ raw, message }) {
-  try {
-    const from = message.from || raw.from || message.author || (message?.sender?.id) || null;
-    const timestamp = raw.timestamp || message.timestamp || Date.now();
-
-    let text = '';
-    if (message.text && message.text.body) {
-      text = message.text.body;
-    } else if (message.interactive) {
-      if (message.interactive.button_reply && message.interactive.button_reply.title) {
-        text = message.interactive.button_reply.title;
-      } else if (message.interactive.list_reply && message.interactive.list_reply.title) {
-        text = message.interactive.list_reply.title;
-      } else {
-        text = JSON.stringify(message.interactive).slice(0, 1000);
-      }
-    } else if (message.type) {
-      text = `[${message.type} message]`;
-    }
-
-    if (!from) {
-      console.warn('processIncomingMessage: could not determine sender (from). Skipping.');
-      return;
-    }
-
-    const isHindi = /[ऀ-ॿ]/.test(text || '');
+    const message = messages[0];
+    const from = message.from;
+    const text = (message.text && message.text.body) || '';
+    const isHindi = /[ऀ-ॿ]/.test(text);
     const userLang = isHindi ? 'hi' : 'en';
-    console.log(`message from ${from} lang=${userLang} text="${(text||'').slice(0,200)}"`);
 
+    console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
+
+    // ===== dedupe check - inside async handler (safe to await) =====
     const intent = detectIntent(text);
     if (shouldSkipDuplicate(from, intent, text)) {
       console.log(`Skipping duplicate ${intent} from ${from}`);
-      // fire-and-forget confirmation
-      sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.")
-        .catch(e => console.error('confirmation send error', e));
-      return;
+      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+      return res.sendStatus(200);
     }
 
-    // Avoid calling OpenAI for empty/non-text message payloads
-    if (!text || text.trim().length === 0 || /^\[.*\]$/.test(text)) {
-      let fallback = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
-      if (intent === 'buy' && !fallback.toLowerCase().includes('flipkart')) {
-        fallback = `${fallback}\n\nBuy here: ${FLIPKART_LINK}`;
-      }
-      await sendWhatsAppText(from, fallback);
-      return;
-    }
-
-    // call OpenAI
+    // generate reply via OpenAI (guarded & language-aware)
     let aiReply = await callOpenAI(text, userLang);
+
+    // If AI didn't produce anything, fallback
     if (!aiReply || !aiReply.trim()) {
       aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
     }
 
+    // If the user intent is BUY but AI didn't include Flipkart link, append it
     if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
       aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
     }
 
+    // attempt send (this is guarded inside sendWhatsAppText)
     await sendWhatsAppText(from, aiReply);
 
+    // forward to Make (optional)
     if (MAKE_WEBHOOK_URL) {
       try {
         await fetch(MAKE_WEBHOOK_URL, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString(), rawSummary: Object.keys(raw) })
+          body: JSON.stringify({ from, text, aiReply, userLang, timestamp: new Date().toISOString() })
         });
       } catch (e) {
         console.error('Make webhook error', e && e.message ? e.message : e);
       }
     }
-  } catch (err) {
-    console.error('processIncomingMessage error:', err && err.stack ? err.stack : err);
-  }
-}
 
-// ----- Health route and server start -----
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error('webhook handler error', err && err.stack ? err.stack : err);
+    return res.sendStatus(500);
+  }
+});
+
 app.get('/', (req, res) => res.send('TurboBot webhook running (v2)'));
 app.listen(PORT, () => console.log(`Running on ${PORT}`));
