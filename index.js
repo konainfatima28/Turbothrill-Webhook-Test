@@ -258,7 +258,7 @@ async function callOpenAI(userMessage, userLang = 'en') {
   const payload = {
     model: process.env.OPENAI_MODEL || OPENAI_MODEL,
     messages: messages,
-    max_tokens: Math.min(300, MAX_TOKENS || 200),
+    max_tokens: Math.min(200, MAX_TOKENS || 120),
     temperature: TEMPERATURE
   };
 
