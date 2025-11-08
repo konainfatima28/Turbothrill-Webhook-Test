@@ -20,7 +20,7 @@ process.on('unhandledRejection', (reason, p) => {
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
-const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22";
+const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "https://turbothrill-webhook.app.n8n.cloud/webhook/lead-logger";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
