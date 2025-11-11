@@ -21,7 +21,10 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
-const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "http://localhost:5678/webhook/lead-logger";
+// const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "http://localhost:5678/webhook/lead-logger";
+const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL
+  || (process.env.N8N_PUBLIC_URL ? `${process.env.N8N_PUBLIC_URL.replace(/\/$/, '')}/webhook/lead-logger` : null)
+  || 'http://localhost:5678/webhook/lead-logger';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
