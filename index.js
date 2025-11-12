@@ -427,9 +427,5 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Example usage in your message handler:
-// await upsertToAppsScript({ phone: incoming.from, text: incoming.text, timestamp: incoming.timestamp });
-
-
 app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged)'));
 app.listen(PORT, () => console.log(`Running on ${PORT}`));
