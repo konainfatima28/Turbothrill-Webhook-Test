@@ -25,7 +25,7 @@ const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/tur
 // require axios correctly and use env for webhook URL
 const axios = require('axios');
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
-const N8N_SECRET = process.env.N8N_SECRET || '';
+// const N8N_SECRET = process.env.N8N_SECRET || '';
 
 // unified sendLead using axios
 async function sendLead(leadData) {
