@@ -427,5 +427,38 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// Using fetch (node 18+ or node-fetch)
+const fetch = require("node-fetch"); // if needed in older Node
+
+async function upsertToAppsScript({ phone, text, timestamp, ai_reply, lang, intent, notes }){
+  const APPSCRIPT_URL = process.env.APPSCRIPT_URL; // your deployed Apps Script URL
+  const APPSCRIPT_SECRET = process.env.APPSCRIPT_SECRET; // must match WEBHOOK_SECRET
+  const body = {
+    phone: phone,
+    timestamp: timestamp || new Date().toISOString(),
+    message: text || "",
+    ai_reply: ai_reply || "",
+    lang: lang || "",
+    intent: intent || "",
+    notes: notes || "",
+    secret: APPSCRIPT_SECRET
+  };
+  const res = await fetch(APPSCRIPT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-APPSCRIPT-SECRET": APPSCRIPT_SECRET
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(()=>({ ok:false, status: res.status }));
+  if(!res.ok) console.error("Apps Script upsert failed", res.status, data);
+  return data;
+}
+
+// Example usage in your message handler:
+// await upsertToAppsScript({ phone: incoming.from, text: incoming.text, timestamp: incoming.timestamp });
+
+
 app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged)'));
 app.listen(PORT, () => console.log(`Running on ${PORT}`));
