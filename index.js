@@ -195,9 +195,9 @@ async function sendWhatsAppText(to, text) {
 const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) => 
 `Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n
 
- 🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
+ 🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
  
- ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
+ ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
  
  Use only in open safe space; avoid fuel/people. 😎\n`.trim();
 
@@ -382,12 +382,27 @@ app.post('/webhook', async (req, res) => {
       await forwardToMake({from, text, aiReply: reply, userLang, intent:'info_sparks', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
-    if (PURCHASE_REGEX.test(lower)) {
-      const reply = `Price ≈ ₹498 — grab here 👇 ${FLIPKART_LINK}`;
-      await sendWhatsAppText(from, reply);
-      await forwardToMake({from, text, aiReply: reply, userLang, intent:'buy', timestamp: new Date().toISOString()});
+
+    // -------------------------
+    // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
+    // If user asks for demo or buy, send the exact messages requested by the user and stop processing.
+    // -------------------------
+    const quickIntent = detectIntent(text);
+    if (quickIntent === 'demo') {
+      const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498 mein?\nBas reply\u00A0karo\u00A0BUY`;
+      await sendWhatsAppText(from, demoMsg);
+      await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
+    if (quickIntent === 'buy') {
+      const buyMsg = `🏁 Price under ₹498 — Limited Stock hai!\n🚀 Abhi order karlo Flipkart se 👇\n${FLIPKART_LINK}\n\n💥 Flipkart delivery + easy returns — price badhne\u00A0se\u00A0pehle\u00A0le\u00A0lo`;
+      await sendWhatsAppText(from, buyMsg);
+      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+    // -------------------------
+    // end quick intent handler
+    // -------------------------
 
     // ===== dedupe check - inside async handler (safe to await) =====
     const intent = detectIntent(text);
