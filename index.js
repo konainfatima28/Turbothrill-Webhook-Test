@@ -193,7 +193,13 @@ async function sendWhatsAppText(to, text) {
 
 // ----- Tuned system prompt + language-aware OpenAI call -----
 const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) => 
-`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\nPrice ~₹498 — grab it here: ${FLIPKART_LINK}\n\nDemo dekho: ${DEMO_VIDEO_LINK} ⚡\n\nUse only in open safe space; avoid fuel/people. 😎\n`.trim();
+`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n
+
+ 🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
+ 
+ ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
+ 
+ Use only in open safe space; avoid fuel/people. 😎\n`.trim();
 
 const tunedSystemPrompt = `
 You are TurboBot MAX v2 — the official WhatsApp sales assistant for Turbo Thrill V5 Obsidian Feet Slider.
