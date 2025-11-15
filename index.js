@@ -420,8 +420,9 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
 
-    // compute quickIntent up-front
+    // compute quickIntent and greeting up-front
     const quickIntent = detectIntent(text);
+    const isGreeting = GREETING_REGEX.test((text || '').trim());
 
     // ===== NEW: STEP 1 - WELCOME MESSAGE (must trigger automatically when user types ANYTHING) =====
     // We will compose one single message that always contains the welcome,
@@ -455,30 +456,21 @@ app.post('/webhook', async (req, res) => {
       console.error('welcome_combined send error', e);
     }
 
-    // If intent was demo or buy, perform the follow-up logic that used to run after sending the second message:
-    if (quickIntent === 'demo') {
-      // schedule follow-ups after demo (only if user hasn't ordered)
-      scheduleFollowUps(from);
-      return res.sendStatus(200);
-    }
-    if (quickIntent === 'buy') {
-      // clear follow-ups when user orders
-      clearFollowUps(from);
-      // log lead purchase intent (keep previous behavior)
-      try {
-        await sendLead({ from, text, intent: 'buy', timestamp: new Date().toISOString() });
-      } catch (e) {
-        console.error('sendLead error', e);
+    // IMPORTANT FIX: if this incoming message was a greeting (e.g., "hi"), we already sent the welcome.
+    // Return early to avoid the separate GREETING_REGEX handler sending a second greeting.
+    if (isGreeting) {
+      // If intent was demo or buy, still execute follow-up logic before returning
+      if (quickIntent === 'demo') {
+        scheduleFollowUps(from);
+      } else if (quickIntent === 'buy') {
+        clearFollowUps(from);
+        try { await sendLead({ from, text, intent: 'buy', timestamp: new Date().toISOString() }); } catch(e){ console.error(e); }
       }
-      return res.sendStatus(200);
-    }
-    if (quickIntent === 'price' || quickIntent === 'what_is') {
-      // we've already sent the combined message; just return
       return res.sendStatus(200);
     }
     // ==========================================================================================
 
-    // 1) Greeting short-circuit (from user's snippet) - keep existing behavior for explicit greetings
+    // 1) Greeting short-circuit (from user's snippet) - kept but will not run for messages that were greetings
     if (GREETING_REGEX.test((text || '').trim())) {
       const greet = getGreeting(userLang);
       // we already sent a combined welcome above for ANY message; still send the friendly greeting as well if user said hi explicitly
