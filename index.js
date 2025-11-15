@@ -25,7 +25,7 @@ const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/tur
 // require axios correctly and use env for webhook URL
 const axios = require('axios');
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
-// const N8N_SECRET = process.env.N8N_SECRET || '';
+const N8N_SECRET = process.env.N8N_SECRET || ''; // small fix to avoid undefined variable in headers
 
 // unified sendLead using axios
 async function sendLead(leadData) {
@@ -197,9 +197,10 @@ const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) =>
 
  🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
  
- ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
- 
- Use only in open safe space; avoid fuel/people. 😎\n`.trim();
+ ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY
+\n
+Use only in open safe space; avoid fuel/people. 😎
+`.trim();
 
 const tunedSystemPrompt = `
 You are TurboBot MAX v2 — the official WhatsApp sales assistant for Turbo Thrill V5 Obsidian Feet Slider.
@@ -384,64 +385,135 @@ app.post('/webhook', async (req, res) => {
     }
 
     // -------------------------
-    // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
-    // If user asks for demo or buy, send the exact messages requested by the user and stop processing.
+    // NEW CHAT FLOW (STEP SYSTEM)
     // -------------------------
-    const quickIntent = detectIntent(text);
-    if (quickIntent === 'demo') {
-      const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498 mein?\nBas reply\u00A0karo\u00A0BUY`;
+    const t = text.toLowerCase().trim();
+    const intent = detectIntent(text);
+
+    // STEP 1: UNIVERSAL WELCOME (must trigger automatically when user types ANYTHING)
+    if (GREETING_REGEX.test(t) || t.length < 3 || intent === 'unknown') {
+      const welcome = 
+`Hey rider 👋🔥
+Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
+Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
+
+Night rides, reels & group rides ke liye next-level!
+Demo chahiye? Bol do DEMO
+Buy karna hai? Bol do ORDER`;
+
+      await sendWhatsAppText(from, welcome);
+      await forwardToMake({from, text, aiReply: welcome, userLang, intent:'welcome', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+
+    // STEP 2: DEMO
+    if (t.includes("demo")) {
+      const demoMsg =
+`🔥 Demo Video:
+${DEMO_VIDEO_LINK}
+
+Why bikers love it:
+• Real spark metal plate
+• Heavy-duty build
+• Fits all boots
+• Easy install (tape + glue included)
+• Long lasting
+
+Price today: ₹498 (COD Available)
+Order karne ke liye bol do: ORDER`;
+
       await sendWhatsAppText(from, demoMsg);
       await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
-    if (quickIntent === 'buy') {
-      const buyMsg = `🏁 Price under ₹498 — Limited Stock hai!\n🚀 Abhi order karlo Flipkart se 👇\n${FLIPKART_LINK}\n\n💥 Flipkart delivery + easy returns — price badhne\u00A0se\u00A0pehle\u00A0le\u00A0lo`;
-      await sendWhatsAppText(from, buyMsg);
-      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
+
+    // STEP 3: ORDER
+    if (t.includes("order") || t.includes("buy") || t.includes("flipkart")) {
+      const orderMsg =
+`Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇
+${FLIPKART_LINK}
+
+⚡ Limited stock
+⚡ Original Turbo Thrill
+⚡ Easy returns
+⚡ Fast delivery`;
+
+      await sendWhatsAppText(from, orderMsg);
+      await forwardToMake({from, text, aiReply: orderMsg, userLang, intent:'order', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
-    // -------------------------
-    // end quick intent handler
-    // -------------------------
 
-    // ===== dedupe check - inside async handler (safe to await) =====
-    const intent = detectIntent(text);
-    if (shouldSkipDuplicate(from, intent, text)) {
-      console.log(`Skipping duplicate ${intent} from ${from}`);
-      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+    // STEP 7: PRICE
+    if (t.includes("price") || t.includes("kitna") || t.includes("rate")) {
+      const priceMsg =
+`Bro price sirf ₹498 hai Flipkart pe.
+COD + fast delivery mil jayegi.
+
+Buy → type ORDER`;
+
+      await sendWhatsAppText(from, priceMsg);
+      await forwardToMake({from, text, aiReply: priceMsg, userLang, intent:'price', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
 
-    // generate reply via OpenAI (guarded & language-aware)
-    let aiReply = await callOpenAI(text, userLang);
+    // STEP 8: "Kya hai / Kya karta hai?"
+    if (t.includes("kya") || t.includes("karta") || t.includes("kya karta") || t.includes("what is")) {
+      const infoMsg =
+`Bro ye spark slider hai —
+Boot ke neeche laga kar drag karte hi
+REAL golden sparks nikalte hain 🔥
 
-    // If AI didn't produce anything, fallback
-    if (!aiReply || !aiReply.trim()) {
-      aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
+Night rides aur reels ke liye OP effect deta hai 😎
+
+Demo → type DEMO
+Order → type ORDER`;
+
+      await sendWhatsAppText(from, infoMsg);
+      await forwardToMake({from, text, aiReply: infoMsg, userLang, intent:'info', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
     }
 
-    // If the user intent is BUY but AI didn't include Flipkart link, append it
-    if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
-      aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
-    }
+    // STEP 6: FALLBACK (ANYTHING ELSE)
+    const fallback =
+`Bro DEMO chahiye to type DEMO
+Order karna hai to type ORDER
+Main yahi help kar dunga 🔥`;
 
-    // attempt send (this is guarded inside sendWhatsAppText)
-    await sendWhatsAppText(from, aiReply);
-
-    // forward to Make (optional)
-    if (MAKE_WEBHOOK_URL) {
-      try {
-        await fetch(MAKE_WEBHOOK_URL, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
-        });
-      } catch (e) {
-        console.error('Make webhook error', e && e.message ? e.message : e);
-      }
-    }
-
+    await sendWhatsAppText(from, fallback);
+    await forwardToMake({from, text, aiReply: fallback, userLang, intent:'fallback', timestamp: new Date().toISOString()});
     return res.sendStatus(200);
+
+    // ===== (legacy flow below retained but unreachable due to STEP system above) =====
+    // keep original dedupe + OpenAI fallback logic in place for future extension
+    // (Note: in current STEP system most messages are handled above)
+    // const intent = detectIntent(text);
+    // if (shouldSkipDuplicate(from, intent, text)) {
+    //   console.log(`Skipping duplicate ${intent} from ${from}`);
+    //   await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+    //   return res.sendStatus(200);
+    // }
+    //
+    // let aiReply = await callOpenAI(text, userLang);
+    // if (!aiReply || !aiReply.trim()) {
+    //   aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
+    // }
+    // if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
+    //   aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
+    // }
+    // await sendWhatsAppText(from, aiReply);
+    // if (MAKE_WEBHOOK_URL) {
+    //   try {
+    //     await fetch(MAKE_WEBHOOK_URL, {
+    //       method: 'POST',
+    //       headers: {'Content-Type': 'application/json'},
+    //       body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
+    //     });
+    //   } catch (e) {
+    //     console.error('Make webhook error', e && e.message ? e.message : e);
+    //   }
+    // }
+    // return res.sendStatus(200);
+
   } catch (err) {
     console.error('webhook handler error', err && err.stack ? err.stack : err);
     return res.sendStatus(500);
