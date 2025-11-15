@@ -420,48 +420,51 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
 
-    // ===== NEW: STEP 1 - WELCOME MESSAGE (must trigger automatically when user types ANYTHING) =====
-    // Keep it short and in biker tone as requested.
-    const welcomeMsg = `Hey rider 👋🔥\nYe Turbo Thrill ka THRILL V5 Spark Slider hai!\nBoot drag karte hi REAL golden sparks nikalte hain 😎🔥\n\nNight rides, reels & group rides ke liye next-level!\nDemo chahiye? Bol do DEMO\nBuy karna hai? Bol do ORDER`;
-    // send welcome always (non-blocking)
-    try {
-      await sendWhatsAppText(from, welcomeMsg);
-      await forwardToMake({ from, text: '__welcome__', aiReply: welcomeMsg, userLang, intent: 'greeting', timestamp: new Date().toISOString() });
-    } catch (e) {
-      console.error('welcome send error', e);
-    }
-    // ==========================================================================================
-
-    // 1) Greeting short-circuit (from user's snippet) - keep existing behavior for explicit greetings
-    if (GREETING_REGEX.test((text || '').trim())) {
-      const greet = getGreeting(userLang);
-      // we already sent welcomeMsg above for ANY message; still send the friendly greeting as well if user said hi explicitly
-      await sendWhatsAppText(from, greet);
-      await forwardToMake({from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
-    }
-
-    // Quick intent detection (extended to include 'order' and 'price' and 'what_is')
+    // compute quickIntent up-front
     const quickIntent = detectIntent(text);
 
-    // ===== NEW: STEP 2 - DEMO RESPONSE =====
+    // ===== NEW: STEP 1 - WELCOME MESSAGE (must trigger automatically when user types ANYTHING) =====
+    // We will compose one single message that always contains the welcome,
+    // and if the user's intent is obvious (DEMO/ORDER/PRICE/WHAT_IS) we'll append the intent-specific section
+    // so the user receives only one WhatsApp message instead of two.
+    const welcomeMsgBase = `Hey rider 👋🔥\nYe Turbo Thrill ka THRILL V5 Spark Slider hai!\nBoot drag karte hi REAL golden sparks nikalte hain 😎🔥\n\nNight rides, reels & group rides ke liye next-level!\nDemo chahiye? Bol do DEMO\nBuy karna hai? Bol do ORDER`;
+
+    // Prepare intent-specific text (only for clear quick intents)
+    let intentExtra = '';
     if (quickIntent === 'demo') {
-      const demoMsg = `🔥 Demo Video:\n${DEMO_VIDEO_LINK}\n\nWhy bikers love it:\n• Real spark metal plate\n• Heavy-duty build\n• Fits all boots\n• Easy install (tape + glue included)\n• Long lasting\n\nPrice today: ₹498 (COD Available)\nOrder karne ke liye bol do: ORDER`;
-      await sendWhatsAppText(from, demoMsg);
-      await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
+      intentExtra = `🔥 Demo Video:\n${DEMO_VIDEO_LINK}\n\nWhy bikers love it:\n• Real spark metal plate\n• Heavy-duty build\n• Fits all boots\n• Easy install (tape + glue included)\n• Long lasting\n\nPrice today: ₹498 (COD Available)\nOrder karne ke liye bol do: ORDER`;
+    } else if (quickIntent === 'buy') {
+      intentExtra = `Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇\n${FLIPKART_LINK}\n\n⚡ Limited stock\n⚡ Original Turbo Thrill\n⚡ Easy returns\n⚡ Fast delivery`;
+    } else if (quickIntent === 'price') {
+      intentExtra = `Bro price sirf ₹498 hai Flipkart pe.\nCOD + fast delivery mil jayegi.\nBuy → type ORDER`;
+    } else if (quickIntent === 'what_is') {
+      intentExtra = `Bro ye spark slider hai —\nBoot ke neeche laga kar drag karte hi\nREAL golden sparks nikalte hain 🔥\nNight rides aur reels ke liye OP effect deta hai 😎\n\nDemo → type DEMO\nOrder → type ORDER`;
+    } else {
+      // For unknown / complex messages we still must send welcome alone
+      intentExtra = '';
+    }
+
+    // Final single payload to send
+    const singleReply = intentExtra ? `${welcomeMsgBase}\n\n${intentExtra}` : welcomeMsgBase;
+
+    // Send only one message now
+    try {
+      await sendWhatsAppText(from, singleReply);
+      await forwardToMake({ from, text: '__welcome_combined__', aiReply: singleReply, userLang, intent: quickIntent || 'greeting', timestamp: new Date().toISOString() });
+    } catch (e) {
+      console.error('welcome_combined send error', e);
+    }
+
+    // If intent was demo or buy, perform the follow-up logic that used to run after sending the second message:
+    if (quickIntent === 'demo') {
       // schedule follow-ups after demo (only if user hasn't ordered)
       scheduleFollowUps(from);
       return res.sendStatus(200);
     }
-
-    // ===== NEW: STEP 3 - ORDER RESPONSE =====
     if (quickIntent === 'buy') {
-      const buyMsg = `Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇\n${FLIPKART_LINK}\n\n⚡ Limited stock\n⚡ Original Turbo Thrill\n⚡ Easy returns\n⚡ Fast delivery`;
       // clear follow-ups when user orders
       clearFollowUps(from);
-      await sendWhatsAppText(from, buyMsg);
-      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
-      // also mark lead via sendLead if you want to log purchase intent (keeps existing behaviour)
+      // log lead purchase intent (keep previous behavior)
       try {
         await sendLead({ from, text, intent: 'buy', timestamp: new Date().toISOString() });
       } catch (e) {
@@ -469,24 +472,22 @@ app.post('/webhook', async (req, res) => {
       }
       return res.sendStatus(200);
     }
+    if (quickIntent === 'price' || quickIntent === 'what_is') {
+      // we've already sent the combined message; just return
+      return res.sendStatus(200);
+    }
+    // ==========================================================================================
 
-    // ===== NEW: STEP 7 - IF USER ASKS PRICE =====
-    if (quickIntent === 'price') {
-      const priceMsg = `Bro price sirf ₹498 hai Flipkart pe.\nCOD + fast delivery mil jayegi.\nBuy → type ORDER`;
-      await sendWhatsAppText(from, priceMsg);
-      await forwardToMake({from, text, aiReply: priceMsg, userLang, intent:'price', timestamp: new Date().toISOString()});
+    // 1) Greeting short-circuit (from user's snippet) - keep existing behavior for explicit greetings
+    if (GREETING_REGEX.test((text || '').trim())) {
+      const greet = getGreeting(userLang);
+      // we already sent a combined welcome above for ANY message; still send the friendly greeting as well if user said hi explicitly
+      await sendWhatsAppText(from, greet);
+      await forwardToMake({from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
 
-    // ===== NEW: STEP 8 - IF USER ASKS "Kya hai / Kya karta hai?" =====
-    if (quickIntent === 'what_is') {
-      const whatMsg = `Bro ye spark slider hai —\nBoot ke neeche laga kar drag karte hi\nREAL golden sparks nikalte hain 🔥\nNight rides aur reels ke liye OP effect deta hai 😎\n\nDemo → type DEMO\nOrder → type ORDER`;
-      await sendWhatsAppText(from, whatMsg);
-      await forwardToMake({from, text, aiReply: whatMsg, userLang, intent:'what_is', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
-    }
-
-    // 2) Quick FAQ match (keywords) - sparks info (keep existing)
+    // 2) Quick FAQ match (keywords) - sparks info
     const lower = text.toLowerCase();
     if (/\b(spark|sparks)\b/.test(lower)) {
       const reply = userLang === 'hi' ? 'हाँ bro — sparks visual effect हैं, demo के लिए open space में use करो.' : 'Yes bro — sparks are a visual demo effect. Use only in open safe spaces.';
@@ -497,7 +498,8 @@ app.post('/webhook', async (req, res) => {
 
     // -------------------------
     // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
-    // (These are still here as a safety net - above we've already handled demo/order explicitly.)
+    // If user asks for demo or buy, send the exact messages requested by the user and stop processing.
+    // (Kept as safety net — we have already handled common quick intents above)
     // -------------------------
     if (quickIntent === 'demo') {
       const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498 mein?\nBas reply\u00A0karo\u00A0BUY`;
