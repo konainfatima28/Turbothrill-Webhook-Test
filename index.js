@@ -222,7 +222,7 @@ Buy karna hai? Bol do ORDER
 ${DEMO_VIDEO_LINK}
 
 Why bikers love it:
-• Real spark metal plate
+• Real spark from feet sliders
 • Heavy-duty build
 • Fits all boots
 • Easy install (tape + glue included)
