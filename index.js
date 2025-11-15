@@ -25,7 +25,7 @@ const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/tur
 // require axios correctly and use env for webhook URL
 const axios = require('axios');
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
-const N8N_SECRET = process.env.N8N_SECRET || ''; // small fix to avoid undefined variable in headers
+// const N8N_SECRET = process.env.N8N_SECRET || '';
 
 // unified sendLead using axios
 async function sendLead(leadData) {
@@ -100,8 +100,10 @@ function detectIntent(text) {
   if (!text) return 'unknown';
   const t = text.toLowerCase().trim();
   if (t === 'demo' || t.includes('demo') || t.includes('watch') || t.includes('video')) return 'demo';
-  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link')) return 'buy';
+  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link') || t === 'order' || t.includes('order')) return 'buy';
   if (t.includes('help') || t.includes('support') || t.includes('agent')) return 'help';
+  if (t.includes('price') || t.includes('₹') || t.includes('rupee') || /\bprice\b/i.test(t)) return 'price';
+  if (/\b(kya hai|kya karta|kya hai\?)/i.test(t) || t === 'kya' || t.includes('kya ') ) return 'what_is';
   return 'unknown';
 }
 
@@ -122,6 +124,57 @@ function shouldSkipDuplicate(from, intent, text) {
 
 // ----- Runtime state
 let WHATSAPP_TOKEN_VALID = false;
+
+// follow-up timers store so we can cancel when user orders
+const followUpTimers = new Map();
+
+function scheduleFollowUps(from) {
+  // cancel existing
+  clearFollowUps(from);
+
+  // Follow-up 1: after ~25 minutes (20-30 min window suggestion)
+  const followUp1Delay = 25 * 60 * 1000; // 25 minutes
+  const followUp1 = setTimeout(async () => {
+    try {
+      const msg = `Bro demo dekh liya?\nAgar spark slider chahiye, aaj Flipkart pe offer chal raha hai 🔥\nOrder → type ORDER\nPrice: ₹498 (COD)`;
+      await sendWhatsAppText(from, msg);
+      await forwardToMake({ from, text: '__followup_1__', aiReply: msg, userLang: 'en', intent: 'followup_1', timestamp: new Date().toISOString() });
+    } catch (e) {
+      console.error('followUp1 error', e);
+    }
+  }, followUp1Delay);
+
+  // Follow-up 2: end of day message — schedule to next 23:59 server local time
+  const now = new Date();
+  const endOfDay = new Date(now);
+  endOfDay.setHours(23, 59, 0, 0);
+  let followUp2Delay = endOfDay - now;
+  if (followUp2Delay <= 0) {
+    // if already past 23:59, schedule for next day 23:59
+    endOfDay.setDate(endOfDay.getDate() + 1);
+    followUp2Delay = endOfDay - now;
+  }
+  const followUp2 = setTimeout(async () => {
+    try {
+      const msg = `Bro,\nAaj ka Flipkart price kabhi bhi change ho sakta hai ⚡\nAgar order karna hai to bol do ORDER\nMain link de dunga.`;
+      await sendWhatsAppText(from, msg);
+      await forwardToMake({ from, text: '__followup_2__', aiReply: msg, userLang: 'en', intent: 'followup_2', timestamp: new Date().toISOString() });
+    } catch (e) {
+      console.error('followUp2 error', e);
+    }
+  }, followUp2Delay);
+
+  followUpTimers.set(from, { followUp1, followUp2 });
+}
+
+function clearFollowUps(from) {
+  const timers = followUpTimers.get(from);
+  if (timers) {
+    if (timers.followUp1) clearTimeout(timers.followUp1);
+    if (timers.followUp2) clearTimeout(timers.followUp2);
+    followUpTimers.delete(from);
+  }
+}
 
 // ----- Helper: check WhatsApp token health (non-blocking)
 async function checkWhatsAppToken() {
@@ -197,9 +250,9 @@ const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) =>
 
  🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
  
- ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY
-\n
-Use only in open safe space; avoid fuel/people. 😎
+ ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
+ 
+ Use only in open safe space; avoid fuel/people. 😎
 `.trim();
 
 const tunedSystemPrompt = `
@@ -367,15 +420,73 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
 
-    // 1) Greeting short-circuit (from user's snippet)
+    // ===== NEW: STEP 1 - WELCOME MESSAGE (must trigger automatically when user types ANYTHING) =====
+    // Keep it short and in biker tone as requested.
+    const welcomeMsg = `Hey rider 👋🔥\nYe Turbo Thrill ka THRILL V5 Spark Slider hai!\nBoot drag karte hi REAL golden sparks nikalte hain 😎🔥\n\nNight rides, reels & group rides ke liye next-level!\nDemo chahiye? Bol do DEMO\nBuy karna hai? Bol do ORDER`;
+    // send welcome always (non-blocking)
+    try {
+      await sendWhatsAppText(from, welcomeMsg);
+      await forwardToMake({ from, text: '__welcome__', aiReply: welcomeMsg, userLang, intent: 'greeting', timestamp: new Date().toISOString() });
+    } catch (e) {
+      console.error('welcome send error', e);
+    }
+    // ==========================================================================================
+
+    // 1) Greeting short-circuit (from user's snippet) - keep existing behavior for explicit greetings
     if (GREETING_REGEX.test((text || '').trim())) {
       const greet = getGreeting(userLang);
+      // we already sent welcomeMsg above for ANY message; still send the friendly greeting as well if user said hi explicitly
       await sendWhatsAppText(from, greet);
       await forwardToMake({from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString()});
       return res.sendStatus(200);
     }
 
-    // 2) Quick FAQ match (keywords) - sparks info
+    // Quick intent detection (extended to include 'order' and 'price' and 'what_is')
+    const quickIntent = detectIntent(text);
+
+    // ===== NEW: STEP 2 - DEMO RESPONSE =====
+    if (quickIntent === 'demo') {
+      const demoMsg = `🔥 Demo Video:\n${DEMO_VIDEO_LINK}\n\nWhy bikers love it:\n• Real spark metal plate\n• Heavy-duty build\n• Fits all boots\n• Easy install (tape + glue included)\n• Long lasting\n\nPrice today: ₹498 (COD Available)\nOrder karne ke liye bol do: ORDER`;
+      await sendWhatsAppText(from, demoMsg);
+      await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
+      // schedule follow-ups after demo (only if user hasn't ordered)
+      scheduleFollowUps(from);
+      return res.sendStatus(200);
+    }
+
+    // ===== NEW: STEP 3 - ORDER RESPONSE =====
+    if (quickIntent === 'buy') {
+      const buyMsg = `Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇\n${FLIPKART_LINK}\n\n⚡ Limited stock\n⚡ Original Turbo Thrill\n⚡ Easy returns\n⚡ Fast delivery`;
+      // clear follow-ups when user orders
+      clearFollowUps(from);
+      await sendWhatsAppText(from, buyMsg);
+      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
+      // also mark lead via sendLead if you want to log purchase intent (keeps existing behaviour)
+      try {
+        await sendLead({ from, text, intent: 'buy', timestamp: new Date().toISOString() });
+      } catch (e) {
+        console.error('sendLead error', e);
+      }
+      return res.sendStatus(200);
+    }
+
+    // ===== NEW: STEP 7 - IF USER ASKS PRICE =====
+    if (quickIntent === 'price') {
+      const priceMsg = `Bro price sirf ₹498 hai Flipkart pe.\nCOD + fast delivery mil jayegi.\nBuy → type ORDER`;
+      await sendWhatsAppText(from, priceMsg);
+      await forwardToMake({from, text, aiReply: priceMsg, userLang, intent:'price', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+
+    // ===== NEW: STEP 8 - IF USER ASKS "Kya hai / Kya karta hai?" =====
+    if (quickIntent === 'what_is') {
+      const whatMsg = `Bro ye spark slider hai —\nBoot ke neeche laga kar drag karte hi\nREAL golden sparks nikalte hain 🔥\nNight rides aur reels ke liye OP effect deta hai 😎\n\nDemo → type DEMO\nOrder → type ORDER`;
+      await sendWhatsAppText(from, whatMsg);
+      await forwardToMake({from, text, aiReply: whatMsg, userLang, intent:'what_is', timestamp: new Date().toISOString()});
+      return res.sendStatus(200);
+    }
+
+    // 2) Quick FAQ match (keywords) - sparks info (keep existing)
     const lower = text.toLowerCase();
     if (/\b(spark|sparks)\b/.test(lower)) {
       const reply = userLang === 'hi' ? 'हाँ bro — sparks visual effect हैं, demo के लिए open space में use करो.' : 'Yes bro — sparks are a visual demo effect. Use only in open safe spaces.';
@@ -385,135 +496,86 @@ app.post('/webhook', async (req, res) => {
     }
 
     // -------------------------
-    // NEW CHAT FLOW (STEP SYSTEM)
+    // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
+    // (These are still here as a safety net - above we've already handled demo/order explicitly.)
     // -------------------------
-    const t = text.toLowerCase().trim();
-    const intent = detectIntent(text);
-
-    // STEP 1: UNIVERSAL WELCOME (must trigger automatically when user types ANYTHING)
-    if (GREETING_REGEX.test(t) || t.length < 3 || intent === 'unknown') {
-      const welcome = 
-`Hey rider 👋🔥
-Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
-Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
-
-Night rides, reels & group rides ke liye next-level!
-Demo chahiye? Bol do DEMO
-Buy karna hai? Bol do ORDER`;
-
-      await sendWhatsAppText(from, welcome);
-      await forwardToMake({from, text, aiReply: welcome, userLang, intent:'welcome', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
-    }
-
-    // STEP 2: DEMO
-    if (t.includes("demo")) {
-      const demoMsg =
-`🔥 Demo Video:
-${DEMO_VIDEO_LINK}
-
-Why bikers love it:
-• Real spark metal plate
-• Heavy-duty build
-• Fits all boots
-• Easy install (tape + glue included)
-• Long lasting
-
-Price today: ₹498 (COD Available)
-Order karne ke liye bol do: ORDER`;
-
+    if (quickIntent === 'demo') {
+      const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498 mein?\nBas reply\u00A0karo\u00A0BUY`;
       await sendWhatsAppText(from, demoMsg);
       await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
+      scheduleFollowUps(from);
+      return res.sendStatus(200);
+    }
+    if (quickIntent === 'buy') {
+      const buyMsg = `🏁 Price under ₹498 — Limited Stock hai!\n🚀 Abhi order karlo Flipkart se 👇\n${FLIPKART_LINK}\n\n💥 Flipkart delivery + easy returns — price badhne\u00A0se\u00A0pehle\u00A0le\u00A0lo`;
+      clearFollowUps(from);
+      await sendWhatsAppText(from, buyMsg);
+      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
+      try { await sendLead({ from, text, intent: 'buy', timestamp: new Date().toISOString() }); } catch(e){ console.error(e); }
+      return res.sendStatus(200);
+    }
+    // -------------------------
+    // end quick intent handler
+    // -------------------------
+
+    // ===== dedupe check - inside async handler (safe to await) =====
+    const intent = detectIntent(text);
+    if (shouldSkipDuplicate(from, intent, text)) {
+      console.log(`Skipping duplicate ${intent} from ${from}`);
+      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
       return res.sendStatus(200);
     }
 
-    // STEP 3: ORDER
-    if (t.includes("order") || t.includes("buy") || t.includes("flipkart")) {
-      const orderMsg =
-`Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇
-${FLIPKART_LINK}
-
-⚡ Limited stock
-⚡ Original Turbo Thrill
-⚡ Easy returns
-⚡ Fast delivery`;
-
-      await sendWhatsAppText(from, orderMsg);
-      await forwardToMake({from, text, aiReply: orderMsg, userLang, intent:'order', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
+    // If user typed something else that we don't explicitly know, provide fallback (STEP 6)
+    // This fallback is short and steers user to DEMO or ORDER
+    // We'll only use fallback if text length is short (likely user intent unclear). For longer queries, let OpenAI handle it.
+    if (!intent || intent === 'unknown') {
+      const shortText = (text || '').trim();
+      if (shortText.length <= 80) {
+        const fallback = `Bro DEMO chahiye to type DEMO\nOrder karna hai to type ORDER\nMain yahi help kar dunga 🔥`;
+        await sendWhatsAppText(from, fallback);
+        await forwardToMake({from, text, aiReply: fallback, userLang, intent:'fallback', timestamp: new Date().toISOString()});
+        // schedule follow-ups anyway so they get nudged if they don't respond
+        scheduleFollowUps(from);
+        return res.sendStatus(200);
+      }
     }
 
-    // STEP 7: PRICE
-    if (t.includes("price") || t.includes("kitna") || t.includes("rate")) {
-      const priceMsg =
-`Bro price sirf ₹498 hai Flipkart pe.
-COD + fast delivery mil jayegi.
+    // generate reply via OpenAI (guarded & language-aware)
+    let aiReply = await callOpenAI(text, userLang);
 
-Buy → type ORDER`;
-
-      await sendWhatsAppText(from, priceMsg);
-      await forwardToMake({from, text, aiReply: priceMsg, userLang, intent:'price', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
+    // If AI didn't produce anything, fallback
+    if (!aiReply || !aiReply.trim()) {
+      aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
     }
 
-    // STEP 8: "Kya hai / Kya karta hai?"
-    if (t.includes("kya") || t.includes("karta") || t.includes("kya karta") || t.includes("what is")) {
-      const infoMsg =
-`Bro ye spark slider hai —
-Boot ke neeche laga kar drag karte hi
-REAL golden sparks nikalte hain 🔥
-
-Night rides aur reels ke liye OP effect deta hai 😎
-
-Demo → type DEMO
-Order → type ORDER`;
-
-      await sendWhatsAppText(from, infoMsg);
-      await forwardToMake({from, text, aiReply: infoMsg, userLang, intent:'info', timestamp: new Date().toISOString()});
-      return res.sendStatus(200);
+    // If the user intent is BUY but AI didn't include Flipkart link, append it
+    if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
+      aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
     }
 
-    // STEP 6: FALLBACK (ANYTHING ELSE)
-    const fallback =
-`Bro DEMO chahiye to type DEMO
-Order karna hai to type ORDER
-Main yahi help kar dunga 🔥`;
+    // attempt send (this is guarded inside sendWhatsAppText)
+    await sendWhatsAppText(from, aiReply);
 
-    await sendWhatsAppText(from, fallback);
-    await forwardToMake({from, text, aiReply: fallback, userLang, intent:'fallback', timestamp: new Date().toISOString()});
+    // forward to Make (optional)
+    if (MAKE_WEBHOOK_URL) {
+      try {
+        await fetch(MAKE_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
+        });
+      } catch (e) {
+        console.error('Make webhook error', e && e.message ? e.message : e);
+      }
+    }
+
+    // Start follow-ups for users who received non-buy replies (avoid scheduling if they ordered)
+    if (intent !== 'buy') {
+      scheduleFollowUps(from);
+    }
+
     return res.sendStatus(200);
-
-    // ===== (legacy flow below retained but unreachable due to STEP system above) =====
-    // keep original dedupe + OpenAI fallback logic in place for future extension
-    // (Note: in current STEP system most messages are handled above)
-    // const intent = detectIntent(text);
-    // if (shouldSkipDuplicate(from, intent, text)) {
-    //   console.log(`Skipping duplicate ${intent} from ${from}`);
-    //   await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
-    //   return res.sendStatus(200);
-    // }
-    //
-    // let aiReply = await callOpenAI(text, userLang);
-    // if (!aiReply || !aiReply.trim()) {
-    //   aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
-    // }
-    // if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
-    //   aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
-    // }
-    // await sendWhatsAppText(from, aiReply);
-    // if (MAKE_WEBHOOK_URL) {
-    //   try {
-    //     await fetch(MAKE_WEBHOOK_URL, {
-    //       method: 'POST',
-    //       headers: {'Content-Type': 'application/json'},
-    //       body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
-    //     });
-    //   } catch (e) {
-    //     console.error('Make webhook error', e && e.message ? e.message : e);
-    //   }
-    // }
-    // return res.sendStatus(200);
-
   } catch (err) {
     console.error('webhook handler error', err && err.stack ? err.stack : err);
     return res.sendStatus(500);
