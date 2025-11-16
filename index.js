@@ -1,4 +1,4 @@
-// index.js - TurboBot webhook (merged, with OpenAI main flow & no dedupe)
+// index.js - TurboBot webhook (merged)
 require('dotenv').config(); // optional for local .env support; harmless in Render
 
 const express = require('express');
@@ -37,7 +37,7 @@ async function sendLead(leadData) {
     await axios.post(MAKE_WEBHOOK_URL, leadData, {
       headers: {
         'Content-Type': 'application/json',
-        //(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
       },
       timeout: 5000
     });
@@ -92,14 +92,32 @@ async function forwardToMake(payload) {
   } catch(e){ console.error('Make forward error', e); }
 }
 
-// ---- INTENT DETECTION (no dedupe) ----
+// ---- DEDUPE CACHE + INTENT DETECTION ----
+const dedupeCache = new Map();
+const DEDUPE_WINDOW = 45 * 1000; // 45 seconds dedupe window
+
 function detectIntent(text) {
   if (!text) return 'unknown';
   const t = text.toLowerCase().trim();
   if (t === 'demo' || t.includes('demo') || t.includes('watch') || t.includes('video')) return 'demo';
-  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link') || t.includes('order')) return 'buy';
+  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link')) return 'buy';
   if (t.includes('help') || t.includes('support') || t.includes('agent')) return 'help';
   return 'unknown';
+}
+
+function shouldSkipDuplicate(from, intent, text) {
+  const now = Date.now();
+  const entry = dedupeCache.get(from);
+  if (!entry) {
+    dedupeCache.set(from, { lastIntent: intent, lastText: text, ts: now });
+    return false;
+  }
+  const sameIntent = entry.lastIntent === intent;
+  const sameText = entry.lastText === text;
+  const withinWindow = now - entry.ts < DEDUPE_WINDOW;
+  // update cache timestamp every time
+  dedupeCache.set(from, { lastIntent: intent, lastText: text, ts: now });
+  return sameIntent && sameText && withinWindow;
 }
 
 // ----- Runtime state
@@ -272,6 +290,9 @@ async function callOpenAI(userMessage, userLang = 'en') {
     return '';
   }
 
+  // ... the rest of your existing callOpenAI implementation continues here ...
+
+
   // Quick safety filter before calling
   const lower = (userMessage || '').toLowerCase();
   const disallowedKeywords = ['how to make', 'explode', 'detonate', 'arson', 'poison', 'create fire', 'manufacture'];
@@ -385,7 +406,7 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
 
-    // 1) Greeting short-circuit
+    // 1) Greeting short-circuit (from user's snippet)
     if (GREETING_REGEX.test((text || '').trim())) {
       const greet = getGreeting(userLang);
       await sendWhatsAppText(from, greet);
@@ -403,8 +424,8 @@ app.post('/webhook', async (req, res) => {
     }
 
     // -------------------------
-    // QUICK INTENT HANDLER FOR DEMO / BUY
-    // These are hard-wired for MAX conversion speed.
+    // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
+    // If user asks for demo or buy, send the exact messages requested by the user and stop processing.
     // -------------------------
     const quickIntent = detectIntent(text);
     if (quickIntent === 'demo') {
@@ -423,10 +444,15 @@ app.post('/webhook', async (req, res) => {
     // end quick intent handler
     // -------------------------
 
-    // INTENT (for OpenAI post-processing)
+    // ===== dedupe check - inside async handler (safe to await) =====
     const intent = detectIntent(text);
+    if (shouldSkipDuplicate(from, intent, text)) {
+      console.log(`Skipping duplicate ${intent} from ${from}`);
+      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+      return res.sendStatus(200);
+    }
 
-    // generate reply via OpenAI (MAIN brain for all other chats)
+    // generate reply via OpenAI (guarded & language-aware)
     let aiReply = await callOpenAI(text, userLang);
 
     // If AI didn't produce anything, fallback
@@ -439,7 +465,7 @@ app.post('/webhook', async (req, res) => {
       aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
     }
 
-    // attempt send
+    // attempt send (this is guarded inside sendWhatsAppText)
     await sendWhatsAppText(from, aiReply);
 
     // forward to Make (optional)
@@ -462,5 +488,5 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged, OpenAI core, no dedupe)'));
+app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged)'));
 app.listen(PORT, () => console.log(`Running on ${PORT}`));
