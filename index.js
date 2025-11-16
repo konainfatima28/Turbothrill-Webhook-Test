@@ -1,14 +1,14 @@
-// index.js - TurboBot webhook (merged)
-require('dotenv').config(); // optional for local .env support; harmless in Render
+// index.js - TurboBot webhook (improved & ready for Render)
+require('dotenv').config();
 
 const express = require('express');
-const fetch = require('node-fetch'); // using node-fetch v2 (require-compatible)
+const axios = require('axios'); // use axios everywhere for consistency
 const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.json());
 
-// ----- Defensive global handlers (prevent process exit on uncaught errors)
+// Defensive global handlers
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
 });
@@ -16,95 +16,67 @@ process.on('unhandledRejection', (reason, p) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
 
-// ----- Environment variables
+// -------- ENV / config
+const PORT = process.env.PORT || 3000;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
-const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
-
-// require axios correctly and use env for webhook URL
-const axios = require('axios');
-const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
-// const N8N_SECRET = process.env.N8N_SECRET || '';
-
-// unified sendLead using axios
-async function sendLead(leadData) {
-  if (!MAKE_WEBHOOK_URL) {
-    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
-    return;
-  }
-  try {
-    await axios.post(MAKE_WEBHOOK_URL, leadData, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
-      },
-      timeout: 5000
-    });
-    console.log('Lead forwarded to n8n');
-  } catch (err) {
-    console.error('Failed to send lead to n8n:', err?.response?.data || err.message || err);
-  }
-}
-
+const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22";
+const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/";
+const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || '';
+const N8N_SECRET = process.env.N8N_SECRET || ''; // optional header to secure webhook
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
-const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
-const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45"); // slightly more excited tone
-const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
+const MAX_TOKENS = Math.min(Number(process.env.MAX_TOKENS || 200), 400);
+const TEMPERATURE = Math.min(Math.max(Number(process.env.TEMPERATURE || 0.45), 0), 1.2);
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
-const PORT = process.env.PORT || 3000;
 
-// ----- Small heuristics & regex (merged from user snippet)
+// ---- small heuristics, regex
 const GREETING_REGEX = /^(hi|hello|hey|hii|hola|namaste|yo|salaam|gm|good morning)\b/i;
-const PURCHASE_REGEX = /\b(buy|order|bought|purchased|link|book)\b/i;
-const SAFETY_KEYWORDS = /(spark|sparks|fire|danger|safe)/i;
 
-// helper: detect language by script / simple hinglish heuristics
+// language detection by unicode script or common hinglish words
 function detectLangByScript(text) {
-  const HINDI_RE = /[ऀ-ॿ]/;
-  const TAMIL_RE = /[\u0B80-\u0BFF]/;
-  const TELUGU_RE = /[\u0C00-\u0C7F]/;
   if (!text) return 'en';
-  if (HINDI_RE.test(text)) return 'hi';
-  if (TAMIL_RE.test(text)) return 'ta';
-  if (TELUGU_RE.test(text)) return 'te';
-  if (/\b(bhai|bro|demo|kya|ka|kaha|jaldi)\b/i.test(text)) return 'hi'; // hinglish heuristic
+  if (/[ऀ-ॿ]/.test(text)) return 'hi'; // devanagari
+  if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
+  if (/[\u0C00-\u0C7F]/.test(text)) return 'te';
+  if (/\b(bhai|bro|demo|kya|ka|kaha|jaldi)\b/i.test(text)) return 'hi';
   return 'en';
 }
 
+// normalize phone to E.164-like for India (91XXXXXXXXXX)
+function normalizePhone(raw) {
+  if (!raw) return '';
+  let s = String(raw).trim();
+  s = s.replace(/[^\d]/g, '');
+  // if 10 digits -> add 91
+  if (s.length === 10) s = '91' + s;
+  if (s.length === 11 && s.startsWith('0')) s = '91' + s.slice(1);
+  return s;
+}
+
+// tuned messages
 function getGreeting(lang) {
-  const map = {
-    en: `Hey rider 👋 Have you checked Turbo Thrill V5 yet?\nMade with our Special Volcanic Alloy — throws epic sparks! ⚡\nWant the demo or Flipkart link?`,
-    hi: `हे राइडर 👋 क्या आपने Turbo Thrill V5 देखा?\nSpecial Volcanic Alloy से बना है — जब घिसता है तो जबरदस्त स्पार्क्स निकलते हैं! ⚡\nडेमो चाहिए या Flipkart लिंक दूँ?`
-  };
-  return map[lang] || map.en;
+  if (lang && lang.startsWith('hi')) {
+    return `हे राइडर 👋 क्या आपने Turbo Thrill V5 देखा?\nSpecial Volcanic Alloy से बना है — जब घिसता है तो जबरदस्त स्पार्क्स निकलते हैं! ⚡\nडेमो चाहिए या Flipkart लिंक दूँ?`;
+  }
+  return `Hey rider 👋 Have you checked Turbo Thrill V5 yet?\nMade with our Special Volcanic Alloy — throws epic sparks! ⚡\nWant the demo or Flipkart link?`;
 }
 
-async function forwardToMake(payload) {
-  if (!MAKE_WEBHOOK_URL) return;
-  try {
-    await fetch(MAKE_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-  } catch(e){ console.error('Make forward error', e); }
-}
+const OPENAI_FALLBACK_REPLY = (flip, demo) => `
+Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?
 
-// ---- DEDUPE CACHE + INTENT DETECTION ----
+🏁 Price under ₹498 — Limited Stock hai!
+🚀 Abhi order karlo Flipkart se 👇
+${flip}
+
+Demo video: ${demo}
+Use only in open safe space; avoid fuel/people. 😎
+`.trim();
+
+// ----- small dedupe cache to avoid repeated processing within short window
 const dedupeCache = new Map();
-const DEDUPE_WINDOW = 45 * 1000; // 45 seconds dedupe window
-
-function detectIntent(text) {
-  if (!text) return 'unknown';
-  const t = text.toLowerCase().trim();
-  if (t === 'demo' || t.includes('demo') || t.includes('watch') || t.includes('video')) return 'demo';
-  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('link')) return 'buy';
-  if (t.includes('help') || t.includes('support') || t.includes('agent')) return 'help';
-  return 'unknown';
-}
-
+const DEDUPE_WINDOW_MS = Number(process.env.DEDUPE_WINDOW_MS || 45 * 1000); // 45s default
 function shouldSkipDuplicate(from, intent, text) {
   const now = Date.now();
   const entry = dedupeCache.get(from);
@@ -114,263 +86,177 @@ function shouldSkipDuplicate(from, intent, text) {
   }
   const sameIntent = entry.lastIntent === intent;
   const sameText = entry.lastText === text;
-  const withinWindow = now - entry.ts < DEDUPE_WINDOW;
-  // update cache timestamp every time
+  const withinWindow = now - entry.ts < DEDUPE_WINDOW_MS;
+  // update cache
   dedupeCache.set(from, { lastIntent: intent, lastText: text, ts: now });
   return sameIntent && sameText && withinWindow;
 }
 
-// ----- Runtime state
-let WHATSAPP_TOKEN_VALID = false;
+// clear cache entries periodically to avoid memory growth
+setInterval(() => {
+  const cutoff = Date.now() - DEDUPE_WINDOW_MS * 4;
+  for (const [k, v] of dedupeCache) {
+    if (v.ts < cutoff) dedupeCache.delete(k);
+  }
+}, 60 * 1000);
 
-// ----- Helper: check WhatsApp token health (non-blocking)
+// ----- WhatsApp token health (non-blocking)
+let WHATSAPP_TOKEN_VALID = false;
 async function checkWhatsAppToken() {
   if (!WHATSAPP_TOKEN || !PHONE_ID) {
-    console.warn('WhatsApp token or PHONE_ID missing. Skipping token health check.');
     WHATSAPP_TOKEN_VALID = false;
     return;
   }
   try {
-    const res = await fetch(`https://graph.facebook.com/v16.0/${PHONE_ID}?access_token=${WHATSAPP_TOKEN}`);
-    const j = await res.json();
-    if (j && j.error) {
-      console.error('WhatsApp token invalid/expired (startup):', j.error && j.error.message ? j.error.message : j.error);
+    const url = `https://graph.facebook.com/v16.0/${PHONE_ID}?access_token=${WHATSAPP_TOKEN}`;
+    const r = await axios.get(url, { timeout: 5000 });
+    if (r.data && r.data.error) {
+      console.error('WhatsApp token invalid/expired:', r.data.error.message || r.data.error);
       WHATSAPP_TOKEN_VALID = false;
     } else {
-      console.log('WhatsApp token OK at startup');
       WHATSAPP_TOKEN_VALID = true;
     }
   } catch (e) {
-    console.error('Error checking WhatsApp token at startup:', e && e.message ? e.message : e);
+    console.warn('WhatsApp token healthcheck failed:', e.message || e);
     WHATSAPP_TOKEN_VALID = false;
   }
 }
-// run check but do not block startup
 checkWhatsAppToken();
+setInterval(checkWhatsAppToken, 1000 * 60 * 30); // check every 30m
 
-// ----- Safety-wrapped send to WhatsApp Cloud API
+// ----- safe WhatsApp send (returns parsed JSON or object with error/skipped)
 async function sendWhatsAppText(to, text) {
-  try {
-    if (!WHATSAPP_TOKEN_VALID) {
-      console.warn('Skipping WhatsApp send — token invalid or not set.');
-      return { skipped: true };
-    }
-    if (!PHONE_ID) {
-      console.warn('PHONE_ID missing. Cannot send WhatsApp message.');
-      return { skipped: true };
-    }
+  if (!WHATSAPP_TOKEN_VALID) {
+    console.warn('Skipping WhatsApp send — token invalid or not set.');
+    return { skipped: true };
+  }
+  if (!PHONE_ID) {
+    console.warn('PHONE_ID missing. Cannot send WhatsApp message.');
+    return { skipped: true };
+  }
+  if (!to) {
+    console.warn('No "to" number provided.');
+    return { skipped: true };
+  }
 
+  try {
     const url = `https://graph.facebook.com/v16.0/${PHONE_ID}/messages`;
-    const r = await fetch(url, {
-      method: 'POST',
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: to,
-        type: "text",
-        text: { body: text }
-      }),
+    const body = {
+      messaging_product: "whatsapp",
+      to: to,
+      type: "text",
+      text: { body: String(text).slice(0, 4096) } // cap
+    };
+    const r = await axios.post(url, body, {
       headers: {
         Authorization: `Bearer ${WHATSAPP_TOKEN}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: 15000
     });
-
-    const textRes = await r.text();
-    console.log('WhatsApp API response:', textRes.slice(0, 1000));
-
-    // Helpful check to surface token expiration quickly
-    if (textRes && textRes.includes('Error validating access token')) {
-      console.error('WhatsApp token expired/invalid. Please rotate the token in Meta Developer Console and update Render env var.');
+    return r.data;
+  } catch (e) {
+    const err = (e.response && e.response.data) ? e.response.data : (e.message || e);
+    console.error('Error sending WhatsApp:', JSON.stringify(err).slice(0, 1000));
+    // if auth error -> mark invalid so future attempts skip
+    if (err && err.error && String(err.error.message || '').toLowerCase().includes('access token')) {
       WHATSAPP_TOKEN_VALID = false;
     }
-
-    return textRes;
-  } catch (e) {
-    console.error('Error sending WhatsApp message:', e && e.stack ? e.stack : e);
-    return { error: e };
+    return { error: err };
   }
 }
 
-// ----- Tuned system prompt + language-aware OpenAI call -----
-const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) => 
-`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n
-
- 🏁 Price under ₹498 — Limited Stock hai! \n 🚀 Abhi order karlo Flipkart se 👇\n  ${FLIPKART_LINK}\n\n 💥 Flipkart delivery + easy returns — price badhne se pehle le lo\n\n
- 
- ⚡ Riders pagal ho rahe hain iske liye!\n Demo video yahan dekho 👇  ${DEMO_VIDEO_LINK} ⚡\n\n 🔥 Chahiye under ₹498 mein? \n Bas reply karo BUY\n\n
- 
- Use only in open safe space; avoid fuel/people. 😎\n`.trim();
-
-const tunedSystemPrompt = `
-⭐ STEP 1: WELCOME MESSAGE
-
-(MUST trigger automatically when user types ANYTHING.)
-
-Hey rider 👋🔥
-Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
-Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
-
-Night rides, reels & group rides ke liye next-level!
-Demo chahiye? Bol do DEMO
-Buy karna hai? Bol do ORDER
-
-⭐ STEP 2: DEMO RESPONSE
-
-(When user types DEMO)
-
-🔥 Demo Video:
-${DEMO_VIDEO_LINK}
-
-Why bikers love it:
-• Real spark from feet sliders
-• Heavy-duty build
-• Fits all boots
-• Easy install (tape + glue included)
-• Long lasting
-
-Price today: ₹498 (COD Available)
-Order karne ke liye bol do: ORDER
-
-⭐ STEP 3: ORDER RESPONSE
-
-(When user types ORDER)
-
-Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇
-${FLIPKART_LINK}
-
-⚡ Limited stock
-⚡ Original Turbo Thrill
-⚡ Easy returns
-⚡ Fast delivery
-
-⭐ STEP 4: FOLLOW-UP 1 (After 20–30 minutes)
-
-(Best timing for WhatsApp funnels)
-
-Bro demo dekh liya?
-Agar spark slider chahiye, aaj Flipkart pe offer chal raha hai 🔥
-Order → type ORDER
-Price: ₹498 (COD)
-
-⭐ STEP 5: FOLLOW-UP 2 (End of day)
-
-Bro,
-Aaj ka Flipkart price kabhi bhi change ho sakta hai ⚡
-Agar order karna hai to bol do ORDER
-Main link de dunga.
-
-⭐ STEP 6: IF USER ASKS ANYTHING ELSE
-
-This must be handled by fallback logic:
-
-Bro DEMO chahiye to type DEMO
-Order karna hai to type ORDER
-Main yahi help kar dunga 🔥
-
-⭐ STEP 7: IF USER TYPES PRICE
-
-Bro price sirf ₹498 hai Flipkart pe.
-COD + fast delivery mil jayegi.
-Buy → type ORDER
-
-⭐ STEP 8: IF USER TYPES “Kya hai / Kya karta hai?”
-
-Bro ye spark slider hai —
-Boot ke neeche laga kar drag karte hi
-REAL golden sparks nikalte hain 🔥
-Night rides aur reels ke liye OP effect deta hai 😎
-
-Demo → type DEMO
-Order → type ORDER
-`;
-
+// ----- OpenAI call (axios)
 async function callOpenAI(userMessage, userLang = 'en') {
   if (!OPENAI_KEY) {
     console.warn('OPENAI_KEY not set — skipping OpenAI call.');
     return '';
   }
-
-  // ... the rest of your existing callOpenAI implementation continues here ...
-
-
-  // Quick safety filter before calling
+  // safety filter
   const lower = (userMessage || '').toLowerCase();
   const disallowedKeywords = ['how to make', 'explode', 'detonate', 'arson', 'poison', 'create fire', 'manufacture'];
   for (const kw of disallowedKeywords) {
     if (lower.includes(kw)) {
-      return `I can't assist with dangerous or illegal instructions. Please contact support: ${SUPPORT_CONTACT || 'Support'}.`;
+      return `I can't assist with dangerous or illegal instructions. Please contact support: ${SUPPORT_CONTACT}.`;
     }
   }
 
-  // Few-shot examples to shape style + language
-  const examples = [
-    // English
-    { role: "user", content: "Demo" },
-    { role: "assistant", content: `Watch demo (10s): ${DEMO_VIDEO_LINK}. Reply BUY for the Flipkart link.` },
-    { role: "user", content: "Buy" },
-    { role: "assistant", content: `Grab it on Flipkart: ${FLIPKART_LINK}. Want help with order or COD options?` },
-
-    // Hindi (Devanagari)
-    { role: "user", content: "डेमो" },
-    { role: "assistant", content: `डेमो देखें (10s): ${DEMO_VIDEO_LINK}। खरीदना है तो 'BUY' लिखें।` },
-
-    // Hinglish
-    { role: "user", content: "Demo bhai" },
-    { role: "assistant", content: `Demo yahan dekho: ${DEMO_VIDEO_LINK} 🔥 Reply BUY for Flipkart link.` }
-  ];
-
-  // Build messages array
+  // build prompts with short examples to drive style
   const messages = [
-    { role: "system", content: tunedSystemPrompt },
-    ...examples,
+    { role: "system", content: `
+You are TurboBot — short, rider-friendly, Hinglish-capable sales assistant.
+Tone: friendly, confident, 2-4 short lines max. Use emojis moderately.
+Do NOT provide instructions for dangerous acts. Keep it sales-focused: demo, price, Flipkart link.
+` },
+    // few shot
+    { role: "user", content: "Demo" },
+    { role: "assistant", content: `Watch demo: ${DEMO_VIDEO_LINK}. Reply BUY for Flipkart link.` },
+    { role: "user", content: "Buy" },
+    { role: "assistant", content: `Grab it on Flipkart: ${FLIPKART_LINK}.` },
     { role: "user", content: userMessage }
   ];
 
-  const payload = {
-    model: process.env.OPENAI_MODEL || OPENAI_MODEL,
-    messages: messages,
-    max_tokens: Math.min(200, MAX_TOKENS || 120),
-    temperature: TEMPERATURE
-  };
-
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
+    const resp = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: OPENAI_MODEL,
+      messages,
+      max_tokens: MAX_TOKENS,
+      temperature: TEMPERATURE,
+    }, {
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      timeout: 20000
     });
-    const j = await resp.json();
 
+    const j = resp.data;
     if (!j || !j.choices || !j.choices[0] || !j.choices[0].message) {
-      console.error('OpenAI unexpected response:', JSON.stringify(j).slice(0, 1000));
+      console.error('OpenAI unexpected shape:', JSON.stringify(j).slice(0, 1000));
       return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
     }
-
     let text = j.choices[0].message.content.trim();
 
-    // Post-processing rules:
-    // Replace placeholder bracket links if present
+    // small post-processing
     text = text.replace(/\[Watch Demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
-    text = text.replace(/\[watch demo\]\([^)]+\)/ig, DEMO_VIDEO_LINK);
-
-    // Trim length (safety)
-    if (text.split(' ').length > 90) {
-      text = text.split(' ').slice(0, 90).join(' ') + '...';
+    if (text.split(/\s+/).length > 120) {
+      text = text.split(/\s+/).slice(0, 120).join(' ') + '...';
     }
-
     if (!text) return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
     return text;
   } catch (e) {
-    console.error('OpenAI call failed:', e && e.message ? e.message : e);
+    console.error('OpenAI error:', (e.response && e.response.data) ? e.response.data : e.message || e);
     return OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
   }
 }
 
-// ----- Webhook endpoints
-// GET verification for Meta
+// ----- forward to n8n / make (secured if N8N_SECRET provided)
+async function forwardToMake(payload = {}) {
+  if (!MAKE_WEBHOOK_URL) return;
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (N8N_SECRET) headers['x-n8n-secret'] = N8N_SECRET;
+    await axios.post(MAKE_WEBHOOK_URL, payload, { headers, timeout: 7000 });
+    console.log('Forwarded to n8n/make');
+  } catch (e) {
+    console.warn('Forward to n8n failed:', e.message || e);
+  }
+}
+
+// ----- quick intent detector
+function detectIntent(text) {
+  if (!text) return 'unknown';
+  const t = text.toLowerCase().trim();
+  if (t === 'demo' || t.includes('demo') || t.includes('video') || t.includes('watch')) return 'demo';
+  if (t === 'buy' || t.includes('buy') || t.includes('flipkart') || t.includes('order')) return 'buy';
+  if (t.includes('help') || t.includes('support') || t.includes('agent')) return 'help';
+  if (t.includes('price') || t.includes('₹') || t.includes('rupee')) return 'price';
+  return 'unknown';
+}
+
+// ------ Webhook endpoints
+
+// META verification (GET)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -379,114 +265,114 @@ app.get('/webhook', (req, res) => {
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       console.log('WEBHOOK_VERIFIED');
       return res.status(200).send(challenge);
-    } else {
-      return res.sendStatus(403);
     }
+    return res.sendStatus(403);
   }
   return res.status(200).send('OK');
 });
 
-// POST webhook handler
+// POST incoming messages
 app.post('/webhook', async (req, res) => {
   try {
-    console.log('incoming body keys:', Object.keys(req.body));
-    const entry = req.body.entry && req.body.entry[0];
+    // basic structure guard
+    const body = req.body || {};
+    const entry = (body.entry && body.entry[0]) || body;
     const changes = entry && entry.changes && entry.changes[0];
-    const value = (changes && changes.value) ? changes.value : req.body;
-    const messages = value.messages || [];
-    if (!messages || messages.length === 0) {
-      console.log('no messages found in payload');
+    const value = (changes && changes.value) ? changes.value : entry;
+    const messages = (value && value.messages) || [];
+    if (!messages.length) {
+      console.log('No messages in payload');
       return res.sendStatus(200);
     }
+
     const message = messages[0];
-    const from = message.from;
-    const text = (message.text && message.text.body) || '';
-    const isHindi = /[ऀ-ॿ]/.test(text);
-    const userLang = detectLangByScript(text) || (isHindi ? 'hi' : 'en');
+    const rawFrom = message.from || message.from_phone || message.sender || '';
+    const from = normalizePhone(rawFrom);
+    const text = (message.text && message.text.body) ? String(message.text.body).trim() : (message.body || '');
+    const userLang = detectLangByScript(text);
+    const intentQuick = detectIntent(text);
 
-    console.log(`message from ${from} lang=${userLang} text="${text.slice(0,200)}"`);
+    console.log(`Incoming msg from=${from} lang=${userLang} text="${(text||'').slice(0,200)}"`);
 
-    // 1) Greeting short-circuit (from user's snippet)
-    if (GREETING_REGEX.test((text || '').trim())) {
+    // 0) Basic sanity: drop if no phone or empty
+    if (!from) {
+      console.warn('No sender phone found, ignoring.');
+      return res.sendStatus(200);
+    }
+
+    // 1) Greeting short-circuit
+    if (GREETING_REGEX.test(text || '')) {
       const greet = getGreeting(userLang);
       await sendWhatsAppText(from, greet);
-      await forwardToMake({from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString()});
+      await forwardToMake({ from, text, aiReply: greet, userLang, intent: 'greeting', timestamp: new Date().toISOString() });
       return res.sendStatus(200);
     }
 
-    // 2) Quick FAQ match (keywords) - sparks info
-    const lower = text.toLowerCase();
-    if (/\b(spark|sparks)\b/.test(lower)) {
-      const reply = userLang === 'hi' ? 'हाँ bro — sparks visual effect हैं, demo के लिए open space में use करो.' : 'Yes bro — sparks are a visual demo effect. Use only in open safe spaces.';
+    // 2) keyword quick answers - sparks / safety
+    const lower = (text || '').toLowerCase();
+    if (/\bspark|sparks\b/.test(lower)) {
+      const reply = userLang === 'hi'
+        ? 'हाँ bro — sparks visual demo effect हैं, open area में try करो.'
+        : 'Yes bro — sparks are a visual demo effect. Use only in open safe areas.';
       await sendWhatsAppText(from, reply);
-      await forwardToMake({from, text, aiReply: reply, userLang, intent:'info_sparks', timestamp: new Date().toISOString()});
+      await forwardToMake({ from, text, aiReply: reply, userLang, intent:'info_sparks', timestamp: new Date().toISOString() });
       return res.sendStatus(200);
     }
 
-    // -------------------------
-    // QUICK INTENT HANDLER FOR DEMO / BUY (REPLACED PURCHASE_REGEX BLOCK)
-    // If user asks for demo or buy, send the exact messages requested by the user and stop processing.
-    // -------------------------
-    const quickIntent = detectIntent(text);
-    if (quickIntent === 'demo') {
-      const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498 mein?\nBas reply\u00A0karo\u00A0BUY`;
+    // 3) quick intent for demo/buy: respond immediately (keeps session messages free inside 24h window)
+    if (intentQuick === 'demo') {
+      const demoMsg = `⚡ Riders pagal ho rahe hain iske liye!\nDemo video yahan dekho 👇\n🎥 ${DEMO_VIDEO_LINK}\n\n🔥 Chahiye under ₹498? Bas reply BUY`;
       await sendWhatsAppText(from, demoMsg);
-      await forwardToMake({from, text, aiReply: demoMsg, userLang, intent:'demo', timestamp: new Date().toISOString()});
+      await forwardToMake({ from, text, aiReply: demoMsg, userLang, intent: 'demo', timestamp: new Date().toISOString() });
       return res.sendStatus(200);
     }
-    if (quickIntent === 'buy') {
-      const buyMsg = `🏁 Price under ₹498 — Limited Stock hai!\n🚀 Abhi order karlo Flipkart se 👇\n${FLIPKART_LINK}\n\n💥 Flipkart delivery + easy returns — price badhne\u00A0se\u00A0pehle\u00A0le\u00A0lo`;
+    if (intentQuick === 'buy' || intentQuick === 'price') {
+      const buyMsg = `🏁 Price under ₹498 — Limited Stock!\nOrder on Flipkart: ${FLIPKART_LINK}\nCOD available.`;
       await sendWhatsAppText(from, buyMsg);
-      await forwardToMake({from, text, aiReply: buyMsg, userLang, intent:'buy', timestamp: new Date().toISOString()});
+      await forwardToMake({ from, text, aiReply: buyMsg, userLang, intent: 'buy', timestamp: new Date().toISOString() });
       return res.sendStatus(200);
     }
-    // -------------------------
-    // end quick intent handler
-    // -------------------------
 
-    // ===== dedupe check - inside async handler (safe to await) =====
+    // 4) dedupe guard (avoid rapid duplicates)
     const intent = detectIntent(text);
     if (shouldSkipDuplicate(from, intent, text)) {
-      console.log(`Skipping duplicate ${intent} from ${from}`);
-      await sendWhatsAppText(from, "I just sent that — did you get the demo? Reply YES if you didn't.");
+      console.log(`Skipping duplicate from ${from}`);
+      await sendWhatsAppText(from, "I just sent that — reply YES if you didn't get it.");
       return res.sendStatus(200);
     }
 
-    // generate reply via OpenAI (guarded & language-aware)
-    let aiReply = await callOpenAI(text, userLang);
-
-    // If AI didn't produce anything, fallback
+    // 5) call OpenAI for fallback/complex replies
+    let aiReply = '';
+    try {
+      aiReply = await callOpenAI(text, userLang);
+    } catch (e) {
+      console.error('OpenAI call error (caught):', e && e.message ? e.message : e);
+      aiReply = '';
+    }
     if (!aiReply || !aiReply.trim()) {
-      aiReply = `Hey — thanks for your message! Want the Flipkart link? ${FLIPKART_LINK}${DEMO_VIDEO_LINK ? ` Or watch a quick demo: ${DEMO_VIDEO_LINK}` : ''}`;
+      aiReply = OPENAI_FALLBACK_REPLY(FLIPKART_LINK, DEMO_VIDEO_LINK);
     }
 
-    // If the user intent is BUY but AI didn't include Flipkart link, append it
+    // ensure buy intent includes link
     if (intent === 'buy' && !aiReply.toLowerCase().includes('flipkart')) {
       aiReply = `${aiReply}\n\nBuy here: ${FLIPKART_LINK}`;
     }
 
-    // attempt send (this is guarded inside sendWhatsAppText)
-    await sendWhatsAppText(from, aiReply);
-
-    // forward to Make (optional)
-    if (MAKE_WEBHOOK_URL) {
-      try {
-        await fetch(MAKE_WEBHOOK_URL, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString() })
-        });
-      } catch (e) {
-        console.error('Make webhook error', e && e.message ? e.message : e);
-      }
+    // 6) send reply & forward to n8n
+    const sendRes = await sendWhatsAppText(from, aiReply);
+    // forward to Make/n8n (best-effort)
+    try {
+      await forwardToMake({ from, text, aiReply, userLang, intent, timestamp: new Date().toISOString(), whatsappResponse: sendRes });
+    } catch(e) {
+      console.warn('Failed to forward to n8n (non-fatal)', e.message || e);
     }
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error('webhook handler error', err && err.stack ? err.stack : err);
+    console.error('Webhook handler error', err && err.stack ? err.stack : err);
     return res.sendStatus(500);
   }
 });
 
-app.get('/', (req, res) => res.send('TurboBot webhook running (v2 - merged)'));
-app.listen(PORT, () => console.log(`Running on ${PORT}`));
+app.get('/', (req, res) => res.send('TurboBot webhook running (improved)'));
+app.listen(PORT, () => console.log(`Running on port ${PORT}`));
