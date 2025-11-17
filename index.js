@@ -14,33 +14,9 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
-// const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
 
-// require axios correctly and use env for webhook URL
-const axios = require('axios');
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
-// const N8N_SECRET = process.env.N8N_SECRET || '';
-
-// unified sendLead using axios
-async function sendLead(leadData) {
-  if (!MAKE_WEBHOOK_URL) {
-    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
-    return;
-  }
-  try {
-    await axios.post(MAKE_WEBHOOK_URL, leadData, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
-      },
-      timeout: 5000
-    });
-    console.log('Lead forwarded to n8n');
-  } catch (err) {
-    console.error('Failed to send lead to n8n:', err?.response?.data || err.message || err);
-  }
-}
-
+const N8N_SECRET = process.env.N8N_SECRET || '';
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -49,6 +25,31 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45");
 const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
+
+// unified sendLead using axios (for Make/n8n + Google Sheet)
+async function sendLead(leadData) {
+  if (!MAKE_WEBHOOK_URL) {
+    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
+    return;
+  }
+  try {
+    console.log('[sendLead] Sending to Make URL:', MAKE_WEBHOOK_URL);
+    await axios.post(MAKE_WEBHOOK_URL, leadData, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+      },
+      timeout: 10000
+    });
+    console.log('Lead forwarded to n8n');
+  } catch (err) {
+    console.error(
+      'Failed to send lead to n8n:',
+      err?.response?.status,
+      err?.response?.data || err.message || err
+    );
+  }
+}
 
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
@@ -406,18 +407,6 @@ async function callOpenAI(userMessage) {
   }
 }
 
-// ----- forward to Make / logging -----
-async function forwardToMake(payload) {
-  if (!MAKE_WEBHOOK_URL) return;
-  try {
-    await fetch(MAKE_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-  } catch(e){ console.error('Make forward error', e); }
-}
-
 // ----- Webhook endpoints -----
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -511,7 +500,7 @@ app.post('/webhook', async (req, res) => {
     if (reply && reply.trim()) {
       await sendWhatsAppText(from, reply);
       seenUsers.add(from);
-      await forwardToMake({
+      await sendLead({
         from,
         text,
         aiReply: reply,
