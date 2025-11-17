@@ -14,7 +14,34 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
+// const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
+
+// require axios correctly and use env for webhook URL
+const axios = require('axios');
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
+// const N8N_SECRET = process.env.N8N_SECRET || '';
+
+// unified sendLead using axios
+async function sendLead(leadData) {
+  if (!MAKE_WEBHOOK_URL) {
+    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
+    return;
+  }
+  try {
+    await axios.post(MAKE_WEBHOOK_URL, leadData, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+      },
+      timeout: 5000
+    });
+    console.log('Lead forwarded to n8n');
+  } catch (err) {
+    console.error('Failed to send lead to n8n:', err?.response?.data || err.message || err);
+  }
+}
+
+
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TOKENS = parseInt(process.env.MAX_TOKENS || "200", 10);
