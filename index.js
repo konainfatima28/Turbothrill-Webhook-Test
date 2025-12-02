@@ -345,7 +345,7 @@ ${FLIPKART_LINK}
 ⚡ Fast delivery"
 
 STEP 7: PRICE
-"Bro price sirf ₹498 hai Flipkart pe.
+"Bro price sirf ₹428 hai Flipkart pe.
 COD + fast delivery mil jayegi.
 Buy → type ORDER"
 
