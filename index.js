@@ -154,7 +154,7 @@ Why bikers love it:
 • Easy install (tape + glue included)
 • Long lasting
 
-Price today: ₹498 (COD Available)
+Price today: ₹428 (COD Available)
 Order karne ke liye bol do: ORDER`
 );
 
@@ -332,7 +332,7 @@ Why bikers love it:
 • Easy install (tape + glue included)
 • Long lasting
 
-Price today: ₹498 (COD Available)
+Price today: ₹428 (COD Available)
 Order karne ke liye bol do: ORDER"
 
 STEP 3: ORDER RESPONSE (ORDER/BUY/LINK/FLIPKART)
