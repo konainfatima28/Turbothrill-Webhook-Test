@@ -168,7 +168,7 @@ ${FLIPKART_LINK}
 ⚡ Fast delivery`
 );
 
-const MSG_PRICE = `Bro price sirf ₹498 hai Flipkart pe.
+const MSG_PRICE = `Bro price sirf ₹428 hai Flipkart pe.
 COD + fast delivery mil jayegi.
 Buy → type ORDER`;
 
