@@ -274,7 +274,7 @@ async function sendWhatsAppText(to, text) {
 
 // ----- OpenAI brain with your full training prompt -----
 const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) =>
-`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n\n🏁 Price under ₹498 — Limited Stock hai!\n🚀 Flipkart link: ${FLIPKART_LINK}\n⚡ Demo: ${DEMO_VIDEO_LINK}\n\nUse only in open safe space; avoid fuel/people. 😎`;
+`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n\n🏁 Price under ₹428 — Limited Stock hai!\n🚀 Flipkart link: ${FLIPKART_LINK}\n⚡ Demo: ${DEMO_VIDEO_LINK}\n\nUse only in open safe space; avoid fuel/people. 😎`;
 
 const tunedSystemPrompt = `
 🎯 Goal: Convert every chat into a Flipkart sale using a fun, emotional Hinglish tone (like a cool biker friend).
@@ -287,7 +287,7 @@ Never sound like a corporate agent. You’re chill, confident, and reply fast.
 - Feature: Creates massive sparks when dragged on the road ⚡
 - Box Includes: 1 slider, 3M VHB tape, Fevikwik (for mounting)
 - Weight: ~60g
-- Price: ₹498–₹599 (varies)
+- Price: ₹400–₹599 (varies)
 - Platform: Flipkart (always give the official Flipkart link)
 - Demo Video: ${DEMO_VIDEO_LINK}
 - Safety note: "Use only in open safe space; not near flammable areas."
