@@ -336,13 +336,13 @@ Price today: ₹441 (COD Available)
 Order karne ke liye bol do: ORDER"
 
 STEP 3: ORDER RESPONSE (ORDER/BUY/LINK/FLIPKART)
-"Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇
+"Bro, Flipkart pe COD & fast delivery mil jayegi 👇
 ${FLIPKART_LINK}
 
+🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
 ⚡ Limited stock
-⚡ Original Turbo Thrill
-⚡ Easy returns
-⚡ Fast delivery"
+💯 Original Turbo Thrill
+🚚 Fast delivery"
 
 STEP 7: PRICE
 "Bro price sirf ₹441 hai Flipkart pe.
