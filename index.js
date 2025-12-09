@@ -159,13 +159,13 @@ Order karne ke liye bol do: ORDER`
 );
 
 const MSG_ORDER = () => (
-`Bro, Flipkart pe direct COD & fast delivery mil jayegi 👇
+`Bro, Flipkart pe COD & fast delivery mil jayegi 👇
 ${FLIPKART_LINK}
 
+🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
 ⚡ Limited stock
-⚡ Original Turbo Thrill
-⚡ Easy returns
-⚡ Fast delivery`
+💯 Original Turbo Thrill
+🚚 Fast delivery`
 );
 
 const MSG_PRICE = `Bro price sirf ₹441 hai Flipkart pe.
