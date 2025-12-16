@@ -61,6 +61,39 @@ async function sendLead(leadData) {
   }
 }
 
+async function getSmartLink(phone) {
+  try {
+    const res = await axios.post(
+      process.env.SMARTLINK_WEBHOOK_URL,
+      {
+        phone: phone,
+        source: 'whatsapp',
+        campaign: 'turbothrill'
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+        },
+        timeout: 10000
+      }
+    );
+
+    if (res.data && res.data.smart_link) {
+      return res.data.smart_link;
+    }
+
+    return FLIPKART_LINK; // fallback
+
+  } catch (error) {
+    console.error('Smartlink error:', error.message);
+    return FLIPKART_LINK; // fallback
+  }
+}
+
+
+
+
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
@@ -483,11 +516,20 @@ app.post('/webhook', async (req, res) => {
       usedIntent = 'order';
     }
 
-    if (!reply && intent === 'price') {
-      reply = MSG_PRICE;
-      usedIntent = 'price';
+    if (!reply && intent === 'order') {
+      const smartLink = await getSmartLink(from);
+
+      reply = `Bro, Flipkart pe COD & fast delivery mil jayegi 👇
+    ${smartLink}
+
+      🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
+      ⚡ Limited stock
+      💯 Original Turbo Thrill
+      🚚 Fast delivery`;
+        usedIntent = 'order';
     }
 
+    
     if (!reply && intent === 'what') {
       reply = MSG_WHAT;
       usedIntent = 'what';
