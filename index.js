@@ -17,12 +17,15 @@ const FLIPKART_LINK =
   process.env.FLIPKART_LINK ||
   "https://www.flipkart.com/turbo-thrill-v5-obsidian-feet-slider-bikers-riders-1-piece-flint-fire-starter/p/itmec22d01cb0e22?pid=FRFH5YDBA7YZ4GGS";
 
+// n8n webhook URLs
 const DEFAULT_MAKE_WEBHOOK_URL =
   process.env.NODE_ENV === 'development'
     ? 'http://localhost:5678/webhook-test/lead-logger'
     : 'https://turbothrill-n8n.onrender.com/webhook/lead-logger';
 
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || DEFAULT_MAKE_WEBHOOK_URL;
+const SMARTLINK_WEBHOOK_URL = process.env.SMARTLINK_WEBHOOK_URL;
+
 const N8N_SECRET = process.env.N8N_SECRET || '';
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
@@ -32,11 +35,10 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || "0.45");
 const DEMO_VIDEO_LINK =
   process.env.DEMO_VIDEO_LINK ||
   "https://www.instagram.com/reel/C6V-j1RyQfk/?igsh=MjlzNDBxeTRrNnlz";
-
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
-// ---------- SEND LEAD ----------
+// ----- Send lead to n8n -----
 async function sendLead(leadData) {
   if (!MAKE_WEBHOOK_URL) return;
   try {
@@ -44,35 +46,42 @@ async function sendLead(leadData) {
       headers: {
         'Content-Type': 'application/json',
         ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
-      }
+      },
+      timeout: 10000
     });
   } catch (err) {
     console.error('sendLead failed:', err?.response?.data || err.message);
   }
 }
 
-// ---------- SMARTLINK ----------
+// ----- SMARTLINK FETCHER (NEW) -----
 async function getSmartLink(phone, intent = 'order') {
   try {
     const res = await axios.post(
-      process.env.SMARTLINK_WEBHOOK_URL,
-      { phone, source: 'whatsapp', intent },
+      SMARTLINK_WEBHOOK_URL,
+      {
+        phone,
+        source: 'whatsapp',
+        intent
+      },
       { timeout: 8000 }
     );
     return res.data?.smart_link || FLIPKART_LINK;
   } catch (e) {
-    console.error('Smartlink error:', e.message);
+    console.error('Smartlink fetch failed:', e.message);
     return FLIPKART_LINK;
   }
 }
 
-// ---------- HELPERS ----------
+// ----- Helpers -----
 const SAFETY_KEYWORDS = /(spark|sparks|fire|danger|safe)/i;
 
 function detectLangByScript(text) {
   if (!text) return 'en';
   if (/[ऀ-ॿ]/.test(text)) return 'hi';
-  if (/\b(bhai|bro|demo|kya|order|buy)\b/i.test(text)) return 'hi';
+  if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
+  if (/[\u0C00-\u0C7F]/.test(text)) return 'te';
+  if (/\b(bhai|bro|demo|kya|jaldi)\b/i.test(text)) return 'hi';
   return 'en';
 }
 
@@ -80,129 +89,127 @@ function detectIntent(text) {
   if (!text) return 'unknown';
   const t = text.toLowerCase();
   if (t.includes('demo')) return 'demo';
-  if (t.includes('order') || t.includes('buy') || t.includes('link')) return 'order';
-  if (t.includes('price') || t.includes('₹') || t.includes('kitna')) return 'price';
+  if (t.includes('order') || t.includes('buy') || t.includes('link') || t.includes('flipkart')) return 'order';
+  if (t.includes('price') || t.includes('kitna') || t.includes('₹')) return 'price';
   if (t.includes('kya') || t.includes('what')) return 'what';
+  if (t.includes('help') || t.includes('support')) return 'help';
   return 'unknown';
 }
 
-// ---------- MESSAGES ----------
+function looksLikeQuestion(text) {
+  if (!text) return false;
+  return text.includes('?') || /(kya|how|why|safe|legal)/i.test(text);
+}
+
+// ----- Funnel Messages -----
 const WELCOME_STEP1 = `Hey rider 👋🔥
 Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
-Demo chahiye? DEMO
-Buy karna hai? ORDER`;
+Demo chahiye? Bol do DEMO
+Buy karna hai? Bol do ORDER`;
 
 const MSG_DEMO = () => `🔥 Demo Video:
 ${DEMO_VIDEO_LINK}
 
 Price today: ₹441 (COD Available)
-ORDER likho`;
+Order karne ke liye bol do: ORDER`;
 
-const MSG_PRICE = `Bro price ₹441 hai.
-COD available.
-ORDER likho`;
+const MSG_PRICE = `Bro price sirf ₹441 hai.
+COD + fast delivery.
+Buy → type ORDER`;
 
 const MSG_WHAT = `Bro ye spark slider hai —
-Boot drag karte hi REAL sparks 🔥
+Boot ke neeche laga kar drag karte hi REAL sparks 🔥
 Demo → DEMO
 Order → ORDER`;
 
 const MSG_SPARK_SAFETY = lang =>
   lang === 'hi'
-    ? 'Haan bro — sparks sirf visual effect ke liye 🔥 Safe open area only.'
-    : 'Yes bro — sparks are only visual 🔥 Use in open safe area.';
+    ? 'Sparks sirf visual effect ke liye hain 🔥 Safe open space mein use karo.'
+    : 'Sparks are only visual 🔥 Use in open safe space.';
 
-// ---------- STATE ----------
+// ----- Runtime -----
 const processedMessageIds = new Set();
 const seenUsers = new Set();
 
-// ---------- WEBHOOK ----------
+let WHATSAPP_TOKEN_VALID = true;
+
+// ----- WhatsApp Send -----
+async function sendWhatsAppText(to, text) {
+  const url = `https://graph.facebook.com/v16.0/${PHONE_ID}/messages`;
+  await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: text }
+    })
+  });
+}
+
+// ----- Webhook verify -----
+app.get('/webhook', (req, res) => {
+  if (req.query['hub.verify_token'] === VERIFY_TOKEN) {
+    return res.send(req.query['hub.challenge']);
+  }
+  res.sendStatus(403);
+});
+
+// ----- MAIN WEBHOOK -----
 app.post('/webhook', async (req, res) => {
   try {
-    const value =
-      req.body?.entry?.[0]?.changes?.[0]?.value || req.body;
+    const messages = req.body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
+    if (!messages.length) return res.sendStatus(200);
 
-    const message = value.messages?.[0];
-    if (!message) return res.sendStatus(200);
+    const msg = messages[0];
+    if (processedMessageIds.has(msg.id)) return res.sendStatus(200);
+    processedMessageIds.add(msg.id);
 
-    const msgId = message.id;
-    if (processedMessageIds.has(msgId)) return res.sendStatus(200);
-    processedMessageIds.add(msgId);
-
-    const from = message.from;
-    const text = message.text?.body || '';
+    const from = msg.from;
+    const text = msg.text?.body || '';
     const intent = detectIntent(text);
     const firstTime = !seenUsers.has(from);
     const lang = detectLangByScript(text);
 
-    let reply = null;
-    let usedIntent = intent;
+    let reply;
 
-    if (SAFETY_KEYWORDS.test(text)) {
+    if (SAFETY_KEYWORDS.test(text) && looksLikeQuestion(text)) {
       reply = MSG_SPARK_SAFETY(lang);
-      usedIntent = 'safety';
-    }
-
-    if (!reply && intent === 'demo') {
+    } else if (intent === 'demo') {
       reply = MSG_DEMO();
-      usedIntent = 'demo';
-    }
-
-    // ✅ ONLY ONE ORDER BLOCK (SMARTLINK)
-    if (!reply && intent === 'order') {
+    } else if (intent === 'order') {
       const smartLink = await getSmartLink(from, 'order');
-
       reply = `Bro, Flipkart pe COD & fast delivery 👇
 ${smartLink}
 
 🔥 Limited stock
-💯 Original Turbo Thrill
-🚚 Fast delivery`;
-
-      usedIntent = 'order';
-    }
-
-    if (!reply && intent === 'price') {
+💯 Original Turbo Thrill`;
+    } else if (intent === 'price') {
       reply = MSG_PRICE;
-      usedIntent = 'price';
-    }
-
-    if (!reply && intent === 'what') {
+    } else if (intent === 'what') {
       reply = MSG_WHAT;
-      usedIntent = 'what';
-    }
-
-    if (!reply && firstTime) {
+    } else if (firstTime) {
       reply = WELCOME_STEP1;
-      usedIntent = 'welcome';
     }
 
-    if (reply) {
-      await fetch(`https://graph.facebook.com/v16.0/${PHONE_ID}/messages`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: from,
-          type: "text",
-          text: { body: reply }
-        })
-      });
+    if (!reply) reply = await callOpenAI(text);
 
-      seenUsers.add(from);
+    await sendWhatsAppText(from, reply);
+    seenUsers.add(from);
 
-      await sendLead({
-        from,
-        text,
-        intent: usedIntent,
-        timestamp: new Date().toISOString()
-      });
-    }
+    await sendLead({
+      from,
+      text,
+      aiReply: reply,
+      intent,
+      timestamp: new Date().toISOString()
+    });
 
     res.sendStatus(200);
   } catch (e) {
@@ -211,4 +218,5 @@ ${smartLink}
   }
 });
 
-app.listen(PORT, () => console.log(`TurboBot running on ${PORT}`));
+app.get('/', (_, res) => res.send('TurboBot running'));
+app.listen(PORT, () => console.log(`Running on ${PORT}`));
