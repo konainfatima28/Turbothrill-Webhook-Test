@@ -59,12 +59,18 @@ async function getSmartLink(phone, intent = 'order') {
     const res = await axios.post(
       SMARTLINK_WEBHOOK_URL,
       {
-        phone,
-        source: 'whatsapp',
+        phone,                 // ✅ REQUIRED
+        click_id: '',           // ✅ REQUIRED (can be empty)
+        msgid: '',              // ✅ REQUIRED
+        campaign: 'whatsapp',   // ✅ REQUIRED
+        adset: 'organic',       // ✅ REQUIRED
+        creative: 'chat',       // ✅ REQUIRED
+        src: 'whatsapp',        // ✅ REQUIRED
         intent
       },
       { timeout: 8000 }
     );
+
     return res.data?.smart_link || FLIPKART_LINK;
   } catch (e) {
     console.error('Smartlink fetch failed:', e.message);
