@@ -179,25 +179,37 @@ app.post('/webhook', async (req, res) => {
 
     let reply;
 
+    // 1) Handle Safety Questions (sparks/fire)
     if (SAFETY_KEYWORDS.test(text) && looksLikeQuestion(text)) {
       reply = MSG_SPARK_SAFETY(lang);
-    } else if (intent === 'demo') {
+    } 
+    // 2) Handle Demo Intent
+    else if (intent === 'demo') {
       reply = MSG_DEMO();
-    } else if (intent === 'order') {
+    } 
+    // 3) Handle Order Intent and generate Smartlink
+    else if (intent === 'order') {
       const smartLink = await getSmartLink(from, 'order');
       reply = `Bro, Flipkart pe COD & fast delivery 👇
 ${smartLink}
 
 🔥 Limited stock
 💯 Original Turbo Thrill`;
-    } else if (intent === 'price') {
+    } 
+    // 4) Handle Price Intent
+    else if (intent === 'price') {
       reply = MSG_PRICE;
-    } else if (intent === 'what') {
+    } 
+    // 5) Handle What Intent
+    else if (intent === 'what') {
       reply = MSG_WHAT;
-    } else if (firstTime) {
+    } 
+    // 6) Handle First Time Visitors
+    else if (firstTime) {
       reply = WELCOME_STEP1;
     }
 
+    // If no reply, call OpenAI
     if (!reply) reply = await callOpenAI(text);
 
     await sendWhatsAppText(from, reply);
