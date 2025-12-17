@@ -1,4 +1,3 @@
-// index.js - TurboBot webhook (funnel + Hinglish + no duplicate spam)
 require('dotenv').config();
 
 const express = require('express');
@@ -66,21 +65,10 @@ async function getSmartLink(phone, intent = 'order') {
       },
       { timeout: 8000 }
     );
-
-    // n8n MUST return redirect link
-    // example:
-    // https://turbothrill-n8n.onrender.com/webhook/r?t=TT-XXXX
-
-    if (res.data && res.data.smart_link) {
-      return res.data.smart_link;
-    }
-
-    throw new Error('smart_link missing');
+    return res.data?.smart_link || FLIPKART_LINK;
   } catch (e) {
     console.error('Smartlink fetch failed:', e.message);
-
-    // fallback redirect (still logs click)
-    return `https://turbothrill-n8n.onrender.com/webhook/r?t=FALLBACK-${Date.now()}`;
+    return FLIPKART_LINK;
   }
 }
 
@@ -117,28 +105,28 @@ const WELCOME_STEP1 = `Hey rider 👋🔥
 Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
-Demo chahiye? Bol do DEMO
-Buy karna hai? Bol do ORDER`;
+Demo chahiye? Type DEMO
+Buy karna hai? Type ORDER`;
 
 const MSG_DEMO = () => `🔥 Demo Video:
 ${DEMO_VIDEO_LINK}
 
-Price today: ₹441 (COD Available)
-Order karne ke liye bol do: ORDER`;
+Price today: ₹428 (COD Available)
+Order karne ke liye type karo: ORDER`;
 
-const MSG_PRICE = `Bro price sirf ₹441 hai.
+const MSG_PRICE = `Bro price sirf ₹428 hai.
 COD + fast delivery.
 Buy → type ORDER`;
 
-const MSG_WHAT = `Bro ye spark slider hai —
-Boot ke neeche laga kar drag karte hi REAL sparks 🔥
+const MSG_WHAT = `Bro ye Turbo Thrill ka spark slider hai —
+Boot ke neeche laga kar drag karte hi REAL sparks nikalte hain 🔥
 Demo → DEMO
 Order → ORDER`;
 
 const MSG_SPARK_SAFETY = lang =>
   lang === 'hi'
-    ? 'Sparks sirf visual effect ke liye hain 🔥 Safe open space mein use karo.'
-    : 'Sparks are only visual 🔥 Use in open safe space.';
+    ? 'Sparks sirf visual effect ke liye hain 🔥 Use in open space only.'
+    : 'Sparks are only visual 🔥 Use in open space only.';
 
 // ----- Runtime -----
 const processedMessageIds = new Set();
@@ -199,17 +187,16 @@ app.post('/webhook', async (req, res) => {
       reply = MSG_DEMO();
     } 
     // 3) Handle Order Intent and generate Smartlink
-    } else if (intent === 'order') {
-  const smartLink = await getSmartLink(from, 'order');
-  reply = `Bro, Flipkart pe COD & fast delivery 👇
+    else if (intent === 'order') {
+      const smartLink = await getSmartLink(from, 'order');
+      reply = `Bro, Flipkart pe COD & fast delivery 👇
 ${smartLink}
 
 🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
 ⚡ Limited stock
 💯 Original Turbo Thrill
 🚚 Fast delivery`;
-}
- 
+    } 
     // 4) Handle Price Intent
     else if (intent === 'price') {
       reply = MSG_PRICE;
