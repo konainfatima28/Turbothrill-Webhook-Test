@@ -66,10 +66,21 @@ async function getSmartLink(phone, intent = 'order') {
       },
       { timeout: 8000 }
     );
-    return res.data?.smart_link || FLIPKART_LINK;
+
+    // n8n MUST return redirect link
+    // example:
+    // https://turbothrill-n8n.onrender.com/webhook/r?t=TT-XXXX
+
+    if (res.data && res.data.smart_link) {
+      return res.data.smart_link;
+    }
+
+    throw new Error('smart_link missing');
   } catch (e) {
     console.error('Smartlink fetch failed:', e.message);
-    return FLIPKART_LINK;
+
+    // fallback redirect (still logs click)
+    return `https://turbothrill-n8n.onrender.com/webhook/r?t=FALLBACK-${Date.now()}`;
   }
 }
 
@@ -188,14 +199,17 @@ app.post('/webhook', async (req, res) => {
       reply = MSG_DEMO();
     } 
     // 3) Handle Order Intent and generate Smartlink
-    else if (intent === 'order') {
-      const smartLink = await getSmartLink(from, 'order');
-      reply = `Bro, Flipkart pe COD & fast delivery 👇
+    } else if (intent === 'order') {
+  const smartLink = await getSmartLink(from, 'order');
+  reply = `Bro, Flipkart pe COD & fast delivery 👇
 ${smartLink}
 
-🔥 Limited stock
-💯 Original Turbo Thrill`;
-    } 
+🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
+⚡ Limited stock
+💯 Original Turbo Thrill
+🚚 Fast delivery`;
+}
+ 
     // 4) Handle Price Intent
     else if (intent === 'price') {
       reply = MSG_PRICE;
