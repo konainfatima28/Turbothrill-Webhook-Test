@@ -36,6 +36,36 @@ const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.co
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
+// 🔗 Get Smart Link from n8n
+async function getSmartLink(phone) {
+  try {
+    const res = await axios.post(
+      process.env.SMARTLINK_WEBHOOK_URL,
+      {
+        phone,
+        source: 'whatsapp',
+        campaign: 'turbothrill'
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+        },
+        timeout: 10000
+      }
+    );
+
+    if (res.data && res.data.smart_link) {
+      return res.data.smart_link;
+    }
+
+    return FLIPKART_LINK; // fallback
+  } catch (error) {
+    console.error('Smartlink error:', error.message);
+    return FLIPKART_LINK; // fallback
+  }
+}
+
 // unified sendLead using axios (for n8n + Google Sheet)
 async function sendLead(leadData) {
   if (!MAKE_WEBHOOK_URL) {
@@ -479,7 +509,16 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (!reply && intent === 'order') {
-      reply = MSG_ORDER();
+      const smartLink = await getSmartLink(from);
+
+reply = `Bro, Flipkart pe COD & fast delivery mil jayegi 👇
+${smartLink}
+
+🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
+⚡ Limited stock
+💯 Original Turbo Thrill
+🚚 Fast delivery`;
+
       usedIntent = 'order';
     }
 
