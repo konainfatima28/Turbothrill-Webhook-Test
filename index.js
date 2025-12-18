@@ -28,9 +28,25 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const PORT = process.env.PORT || 3000;
 
 // ----- SEND LEAD TO N8N -----
-async function sendLead(payload) {
+async function sendLead({
+  from,
+  text = '',
+  aiReply = '',
+  intent = '',
+  smart_token = '',
+  flipkart_clicked = false,
+  timestamp = new Date().toISOString()
+}) {
   try {
-    await axios.post(LEAD_LOGGER_URL, payload, {
+    await axios.post(LEAD_LOGGER_URL, {
+      from,
+      text,
+      ai_reply: aiReply,          // ✅ EXACT key your workflow expects
+      intent,
+      smart_token,                // ✅ optional, won’t break old logic
+      flipkart_clicked,
+      timestamp
+    }, {
       headers: { 'Content-Type': 'application/json' },
       timeout: 8000
     });
@@ -119,22 +135,16 @@ app.post('/webhook', async (req, res) => {
     const intent = detectIntent(text);
 
     let reply = '';
+let token = ''; // ✅ define token in outer scope
 
     // ---- ORDER FLOW (IMPORTANT PART) ----
     if (intent === 'order') {
 
       // 1️⃣ Get smartlink + token
-      const { smart_link, token } = await getSmartLink(from, 'order');
+      const smartData = await getSmartLink(from, 'order');
+token = smartData.token || '';
+const smart_link = smartData.smart_link;
 
-      // 2️⃣ SAVE phone + token together (CRITICAL FIX)
-      if (token) {
-        await sendLead({
-          from,
-          smart_token: token,
-          flipkart_clicked: true,
-          timestamp: new Date().toISOString()
-        });
-      }
 
       // 3️⃣ Reply to user
       reply = `Bro, Flipkart pe COD & fast delivery 👇
@@ -155,12 +165,15 @@ Order → ORDER`;
     await sendWhatsAppText(from, reply);
 
     // ---- NORMAL LEAD LOGGER (NO TOKEN HERE) ----
-    await sendLead({
-      from,
-      text,
-      intent,
-      timestamp: new Date().toISOString()
-    });
+  await sendLead({
+  from,
+  text,
+  aiReply: reply,
+  intent,
+  smart_token: intent === 'order' ? token : '',
+  flipkart_clicked: intent === 'order'
+});
+
 
     res.sendStatus(200);
   } catch (e) {
