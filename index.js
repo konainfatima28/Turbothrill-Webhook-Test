@@ -6,6 +6,7 @@ const fetch = require('node-fetch'); // v2
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const crypto = require('crypto');
+const metaLeadSent = new Set();
 
 const app = express();
 app.use(bodyParser.json());
@@ -618,12 +619,15 @@ ${smartLink}
         messageId: msgId,
         timestamp: new Date().toISOString()
       });
-      // 🔥 Send Lead event to Meta CAPI
-await sendMetaLeadEvent({
-  phone: from,
-  smartToken: msgId
-});
-
+      
+// 🔥 Send Meta Lead ONLY ONCE per phone
+if (!metaLeadSent.has(from)) {
+  await sendMetaLeadEvent({
+    phone: from,
+    smartToken: msgId
+  });
+  metaLeadSent.add(from);
+}
     }
 
     return res.sendStatus(200);
