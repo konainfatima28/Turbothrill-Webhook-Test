@@ -5,6 +5,7 @@ const express = require('express');
 const fetch = require('node-fetch'); // v2
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const app = express();
 app.use(bodyParser.json());
@@ -450,6 +451,62 @@ async function callOpenAI(userMessage) {
   }
 }
 
+// ===== META CAPI: SEND LEAD EVENT =====
+async function sendMetaLeadEvent({ phone, smartToken }) {
+  if (!process.env.META_PIXEL_ID || !process.env.META_ACCESS_TOKEN) {
+    console.warn('Meta CAPI env vars missing, skipping Meta Lead event');
+    return;
+  }
+
+  try {
+    // 1️⃣ Normalize phone (digits only)
+    const normalizedPhone = String(phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) return;
+
+    // 2️⃣ SHA256 hash (Meta requirement)
+    const hashedPhone = crypto
+      .createHash('sha256')
+      .update(normalizedPhone)
+      .digest('hex');
+
+    // 3️⃣ Build Meta payload
+    const payload = {
+      data: [
+        {
+          event_name: 'Lead',
+          event_time: Math.floor(Date.now() / 1000),
+          action_source: 'system_generated',
+          event_id: `lead_${smartToken || Date.now()}`,
+          user_data: {
+            ph: [hashedPhone]
+          },
+          custom_data: {
+            content_name: 'Turbo Thrill V5',
+            currency: 'INR',
+            value: 0
+          }
+        }
+      ],
+      test_event_code: process.env.META_TEST_CODE
+    };
+
+    // 4️⃣ Send to Meta
+    const response = await fetch(
+      `https://graph.facebook.com/v19.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    const result = await response.json();
+    console.log('Meta Lead Event Sent:', result);
+  } catch (err) {
+    console.error('Meta CAPI Lead Error:', err.message || err);
+  }
+}
+
 // ----- Webhook endpoints -----
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -561,6 +618,12 @@ ${smartLink}
         messageId: msgId,
         timestamp: new Date().toISOString()
       });
+      // 🔥 Send Lead event to Meta CAPI
+await sendMetaLeadEvent({
+  phone: from,
+  smartToken: msgId
+});
+
     }
 
     return res.sendStatus(200);
