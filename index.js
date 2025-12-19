@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const metaLeadSent = new Set();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.json());app.use(bodyParser.json({ type: ['application/json', 'text/plain'] }));
 
 // ----- Env vars -----
 const SMARTLINK_WEBHOOK_URL = process.env.SMARTLINK_WEBHOOK_URL;
@@ -683,7 +683,13 @@ if (!metaLeadSent.has(from)) {
 // ===== META VIEW CONTENT ENDPOINT =====
 app.post('/meta/view', async (req, res) => {
   try {
-    const { token } = req.body || {};
+    const token =
+      req.body?.token ||
+      req.body?.smart_token ||
+      req.query?.token ||
+      null;
+
+    console.log('[META VIEW] full body:', req.body);
     console.log('[META VIEW] token received:', token);
 
     await sendMetaViewContentEvent({
