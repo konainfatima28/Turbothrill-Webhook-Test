@@ -509,13 +509,21 @@ async function sendMetaLeadEvent({ phone, smartToken }) {
 }
 
 // ===== META CAPI: SEND VIEW CONTENT EVENT =====
-async function sendMetaViewContentEvent({ smartToken }) {
+async function sendMetaViewContentEvent({ phone, smartToken }) {
   if (!process.env.META_PIXEL_ID || !process.env.META_ACCESS_TOKEN) {
     console.warn('Meta CAPI env vars missing, skipping ViewContent');
     return;
   }
 
   try {
+    const normalizedPhone = String(phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) return;
+
+    const hashedPhone = crypto
+      .createHash('sha256')
+      .update(normalizedPhone)
+      .digest('hex');
+
     const payload = {
       data: [
         {
@@ -523,6 +531,9 @@ async function sendMetaViewContentEvent({ smartToken }) {
           event_time: Math.floor(Date.now() / 1000),
           action_source: 'website',
           event_id: `vc_${smartToken || Date.now()}`,
+          user_data: {
+            ph: [hashedPhone]
+          },
           custom_data: {
             content_name: 'Turbo Thrill V5',
             content_type: 'product',
@@ -683,13 +694,11 @@ if (!metaLeadSent.has(from)) {
 // ===== META VIEW CONTENT ENDPOINT =====
 app.post('/meta/view', async (req, res) => {
   try {
-    const { token } = req.body || {};
-    console.log('[META VIEW] token received:', token);
-
+    const { phone, token } = req.body || {};
     await sendMetaViewContentEvent({
+      phone,
       smartToken: token
     });
-
     return res.json({ ok: true, event: 'view_content_sent' });
   } catch (err) {
     console.error('ViewContent endpoint error:', err);
