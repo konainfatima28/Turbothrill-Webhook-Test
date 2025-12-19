@@ -1,3 +1,7 @@
+const SMARTLINK_WEBHOOK_URL =
+  process.env.SMARTLINK_WEBHOOK_URL ||
+  'https://turbothrill-n8n.onrender.com/webhook/create-smartlink-main';
+
 // index.js - TurboBot webhook (funnel + Hinglish + no duplicate spam)
 require('dotenv').config();
 
@@ -40,11 +44,10 @@ const PORT = process.env.PORT || 3000;
 async function getSmartLink(phone) {
   try {
     const res = await axios.post(
-      process.env.SMARTLINK_WEBHOOK_URL,
+      SMARTLINK_WEBHOOK_URL,
       {
         phone,
-        source: 'whatsapp',
-        campaign: 'turbothrill'
+        campaign: 'whatsapp_bot'
       },
       {
         headers: {
@@ -55,39 +58,15 @@ async function getSmartLink(phone) {
       }
     );
 
-    if (res.data && res.data.smart_link) {
+    if (res.data?.smart_link) {
       return res.data.smart_link;
     }
 
-    return FLIPKART_LINK; // fallback
+    console.warn('Smartlink missing in response, using fallback');
+    return FLIPKART_LINK;
   } catch (error) {
     console.error('Smartlink error:', error.message);
-    return FLIPKART_LINK; // fallback
-  }
-}
-
-// unified sendLead using axios (for n8n + Google Sheet)
-async function sendLead(leadData) {
-  if (!MAKE_WEBHOOK_URL) {
-    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
-    return;
-  }
-  try {
-    console.log('[sendLead] Sending to n8n URL:', MAKE_WEBHOOK_URL);
-    await axios.post(MAKE_WEBHOOK_URL, leadData, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
-      },
-      timeout: 10000
-    });
-    console.log('Lead forwarded to n8n');
-  } catch (err) {
-    console.error(
-      'Failed to send lead to n8n:',
-      err?.response?.status,
-      err?.response?.data || err.message || err
-    );
+    return FLIPKART_LINK;
   }
 }
 
