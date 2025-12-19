@@ -1,7 +1,3 @@
-const SMARTLINK_WEBHOOK_URL =
-  process.env.SMARTLINK_WEBHOOK_URL ||
-  'https://turbothrill-n8n.onrender.com/webhook/create-smartlink-main';
-
 // index.js - TurboBot webhook (funnel + Hinglish + no duplicate spam)
 require('dotenv').config();
 
@@ -14,6 +10,7 @@ const app = express();
 app.use(bodyParser.json());
 
 // ----- Env vars -----
+const SMARTLINK_WEBHOOK_URL = process.env.SMARTLINK_WEBHOOK_URL;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
@@ -40,8 +37,39 @@ const DEMO_VIDEO_LINK = process.env.DEMO_VIDEO_LINK || "https://www.instagram.co
 const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || "Support@turbothrill.in";
 const PORT = process.env.PORT || 3000;
 
+// unified sendLead using axios (for n8n + Google Sheet)
+async function sendLead(leadData) {
+  if (!MAKE_WEBHOOK_URL) {
+    console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
+    return;
+  }
+
+  try {
+    console.log('[sendLead] Sending to n8n URL:', MAKE_WEBHOOK_URL);
+    await axios.post(MAKE_WEBHOOK_URL, leadData, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
+      },
+      timeout: 10000
+    });
+    console.log('Lead forwarded to n8n');
+  } catch (err) {
+    console.error(
+      'Failed to send lead to n8n:',
+      err?.response?.status,
+      err?.response?.data || err.message || err
+    );
+  }
+}
+
 // 🔗 Get Smart Link from n8n
 async function getSmartLink(phone) {
+  if (!SMARTLINK_WEBHOOK_URL) {
+    console.warn('SMARTLINK_WEBHOOK_URL not set, using fallback');
+    return FLIPKART_LINK;
+  }
+
   try {
     const res = await axios.post(
       SMARTLINK_WEBHOOK_URL,
@@ -58,18 +86,16 @@ async function getSmartLink(phone) {
       }
     );
 
-    if (res.data?.smart_link) {
+    if (res.data && res.data.smart_link) {
       return res.data.smart_link;
     }
 
-    console.warn('Smartlink missing in response, using fallback');
     return FLIPKART_LINK;
-  } catch (error) {
-    console.error('Smartlink error:', error.message);
+  } catch (err) {
+    console.error('Smartlink error:', err.message);
     return FLIPKART_LINK;
   }
 }
-
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
@@ -488,9 +514,9 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (!reply && intent === 'order') {
-      const smartLink = await getSmartLink(from);
+  const smartLink = await getSmartLink(from);
 
-reply = `Bro, Flipkart pe COD & fast delivery mil jayegi 👇
+  reply = `Bro, Flipkart pe COD & fast delivery mil jayegi 👇
 ${smartLink}
 
 🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
@@ -498,8 +524,8 @@ ${smartLink}
 💯 Original Turbo Thrill
 🚚 Fast delivery`;
 
-      usedIntent = 'order';
-    }
+  usedIntent = 'order';
+}
 
     if (!reply && intent === 'price') {
       reply = MSG_PRICE;
