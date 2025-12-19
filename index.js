@@ -683,20 +683,20 @@ if (!metaLeadSent.has(from)) {
 // ===== META VIEW CONTENT ENDPOINT =====
 app.post('/meta/view', async (req, res) => {
   try {
-    const token =
-      req.body?.token ||
-      req.body?.smart_token ||
-      req.query?.token ||
-      null;
+    const token = req.query.token || null;
 
-    console.log('[META VIEW] full body:', req.body);
+    console.log('[META VIEW] query:', req.query);
     console.log('[META VIEW] token received:', token);
+
+    if (!token) {
+      return res.status(400).json({ ok: false, error: 'token_missing' });
+    }
 
     await sendMetaViewContentEvent({
       smartToken: token
     });
 
-    return res.json({ ok: true, event: 'view_content_sent' });
+    return res.json({ ok: true, event: 'view_content_sent', token });
   } catch (err) {
     console.error('ViewContent endpoint error:', err);
     return res.status(500).json({ ok: false });
