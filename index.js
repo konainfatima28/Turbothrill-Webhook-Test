@@ -5,14 +5,11 @@ const express = require('express');
 const fetch = require('node-fetch'); // v2
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const crypto = require('crypto');
-const metaLeadSent = new Set();
 
 const app = express();
-app.use(bodyParser.json());app.use(bodyParser.json({ type: ['application/json', 'text/plain'] }));
+app.use(bodyParser.json());
 
 // ----- Env vars -----
-const SMARTLINK_WEBHOOK_URL = process.env.SMARTLINK_WEBHOOK_URL;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
 const OPENAI_KEY = process.env.OPENAI_KEY;
@@ -45,7 +42,6 @@ async function sendLead(leadData) {
     console.warn('MAKE_WEBHOOK_URL not set — skipping forwarding to n8n');
     return;
   }
-
   try {
     console.log('[sendLead] Sending to n8n URL:', MAKE_WEBHOOK_URL);
     await axios.post(MAKE_WEBHOOK_URL, leadData, {
@@ -65,39 +61,6 @@ async function sendLead(leadData) {
   }
 }
 
-// 🔗 Get Smart Link from n8n
-async function getSmartLink(phone) {
-  if (!SMARTLINK_WEBHOOK_URL) {
-    console.warn('SMARTLINK_WEBHOOK_URL not set, using fallback');
-    return FLIPKART_LINK;
-  }
-
-  try {
-    const res = await axios.post(
-      SMARTLINK_WEBHOOK_URL,
-      {
-        phone,
-        campaign: 'whatsapp_bot'
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
-        },
-        timeout: 10000
-      }
-    );
-
-    if (res.data && res.data.smart_link) {
-      return res.data.smart_link;
-    }
-
-    return FLIPKART_LINK;
-  } catch (err) {
-    console.error('Smartlink error:', err.message);
-    return FLIPKART_LINK;
-  }
-}
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
@@ -123,6 +86,29 @@ function detectLangByScript(text) {
 }
 
 // ---- INTENT DETECTION ----
+function isHighIntent(text = '') {
+  const t = text.toLowerCase();
+
+  const HIGH_INTENT_KEYWORDS = [
+    'order',
+    'buy',
+    'purchase',
+    'checkout',
+    'link',
+    'flipkart',
+    'order kar',
+    'order karna',
+    'mang',
+    'mangwana',
+    'kharid',
+    'buy kar',
+    'link bhejo',
+    'link bhej do'
+  ];
+
+  return HIGH_INTENT_KEYWORDS.some(k => t.includes(k));
+}
+
 function detectIntent(text) {
   if (!text) return 'unknown';
   const t = text.toLowerCase().trim();
@@ -241,6 +227,7 @@ function looksLikeQuestion(text) {
 // ----- Runtime state -----
 const processedMessageIds = new Set();
 const seenUsers = new Set();
+const highIntentUsers = new Set();
 
 let WHATSAPP_TOKEN_VALID = false;
 
@@ -452,110 +439,6 @@ async function callOpenAI(userMessage) {
   }
 }
 
-// ===== META CAPI: SEND LEAD EVENT =====
-async function sendMetaLeadEvent({ phone, smartToken }) {
-  if (!process.env.META_PIXEL_ID || !process.env.META_ACCESS_TOKEN) {
-    console.warn('Meta CAPI env vars missing, skipping Meta Lead event');
-    return;
-  }
-
-  try {
-    // 1️⃣ Normalize phone (digits only)
-    const normalizedPhone = String(phone || '').replace(/\D/g, '');
-    if (!normalizedPhone) return;
-
-    // 2️⃣ SHA256 hash (Meta requirement)
-    const hashedPhone = crypto
-      .createHash('sha256')
-      .update(normalizedPhone)
-      .digest('hex');
-
-    // 3️⃣ Build Meta payload
-    const payload = {
-      data: [
-        {
-          event_name: 'Lead',
-          event_time: Math.floor(Date.now() / 1000),
-          action_source: 'system_generated',
-          event_id: `lead_${smartToken || Date.now()}`,
-          user_data: {
-            ph: [hashedPhone]
-          },
-          custom_data: {
-            content_name: 'Turbo Thrill V5',
-            currency: 'INR',
-            value: 0
-          }
-        }
-      ],
-      test_event_code: process.env.META_TEST_CODE
-    };
-
-    // 4️⃣ Send to Meta
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
-
-    const result = await response.json();
-    console.log('Meta Lead Event Sent:', result);
-  } catch (err) {
-    console.error('Meta CAPI Lead Error:', err.message || err);
-  }
-}
-
-// ===== META CAPI: SEND VIEW CONTENT EVENT =====
-async function sendMetaViewContentEvent({ phone, smartToken }) {
-  if (!process.env.META_PIXEL_ID || !process.env.META_ACCESS_TOKEN) {
-    console.warn('Meta CAPI env vars missing, skipping ViewContent');
-    return;
-  }
-
-  // 1️⃣ Normalize + hash phone
-  const normalizedPhone = String(phone).replace(/\D/g, '');
-  const hashedPhone = crypto
-    .createHash('sha256')
-    .update(normalizedPhone)
-    .digest('hex');
-
-  const payload = {
-    data: [
-      {
-        event_name: 'ViewContent',
-        event_time: Math.floor(Date.now() / 1000),
-        action_source: 'website',
-        event_id: `vc_${smartToken}`,
-        user_data: {
-          ph: [hashedPhone],
-          external_id: smartToken
-        },
-        custom_data: {
-          content_name: 'Turbo Thrill V5',
-          content_type: 'product',
-          currency: 'INR',
-          value: 441
-        }
-      }
-    ],
-    test_event_code: process.env.META_TEST_CODE
-  };
-
-  const response = await fetch(
-    `https://graph.facebook.com/v19.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }
-  );
-
-  const result = await response.json();
-  console.log('Meta ViewContent Sent:', result);
-}
 // ----- Webhook endpoints -----
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -579,10 +462,10 @@ app.post('/webhook', async (req, res) => {
     const changes = entry && entry.changes && entry.changes[0];
     const value = (changes && changes.value) ? changes.value : req.body;
     const messages = value.messages || [];
-    if (!messages || messages.length === 0) {
-      console.log('no messages found in payload');
-      return res.sendStatus(200);
-    }
+   if (!messages || messages.length === 0) {
+  console.log('no messages found in payload');
+  return res.sendStatus(200);
+}
 
     const message = messages[0];
     const msgId = message.id;          // WhatsApp message id
@@ -619,17 +502,8 @@ app.post('/webhook', async (req, res) => {
       usedIntent = 'demo';
     }
 
-    if (!reply && intent === 'order') {
-  const smartLink = await getSmartLink(from);
-
-  reply = `Bro, Flipkart pe COD & fast delivery mil jayegi 👇
-${smartLink}
-
-🔥 Pro tip: Riders usually 2 pieces buy karte hain — dono boots se sparks aur zyada heavy, reel-worthy lagta hai!
-⚡ Limited stock
-💯 Original Turbo Thrill
-🚚 Fast delivery`;
-
+   if (!reply && intent === 'order') {
+  reply = MSG_ORDER();
   usedIntent = 'order';
 }
 
@@ -658,24 +532,25 @@ ${smartLink}
     if (reply && reply.trim()) {
       await sendWhatsAppText(from, reply);
       seenUsers.add(from);
-      await sendLead({
-        from,
-        text,
-        aiReply: reply,
-        userLang,
-        intent: usedIntent,
-        messageId: msgId,
-        timestamp: new Date().toISOString()
-      });
       
-// 🔥 Send Meta Lead ONLY ONCE per phone
-if (!metaLeadSent.has(from)) {
-  await sendMetaLeadEvent({
-    phone: from,
-    smartToken: msgId
-  });
-  metaLeadSent.add(from);
+      let highIntentFlag = 'NO';
+
+if (isHighIntent(text) && !highIntentUsers.has(from)) {
+  highIntentFlag = 'YES';
+  highIntentUsers.add(from); // lock per user
 }
+
+await sendLead({
+  from,
+  text,
+  aiReply: reply,
+  userLang,
+  intent: usedIntent,
+  high_intent: highIntentFlag,
+  messageId: msgId,
+  timestamp: new Date().toISOString()
+});
+
     }
 
     return res.sendStatus(200);
@@ -683,27 +558,6 @@ if (!metaLeadSent.has(from)) {
     console.error('webhook handler error', err && err.stack ? err.stack : err);
     return res.sendStatus(500);
   }
-});
-
-// ===== META VIEW CONTENT ENDPOINT =====
-app.post('/meta/view', async (req, res) => {
-  const { token, phone } = req.body || {};
-
-  console.log('[META VIEW] full body:', req.body);
-  console.log('[META VIEW] token:', token);
-  console.log('[META VIEW] phone:', phone);
-
-  if (!token || !phone) {
-    console.warn('[META VIEW] missing token or phone');
-    return res.json({ ok: false, reason: 'missing_identity' });
-  }
-
-  await sendMetaViewContentEvent({
-    phone,
-    smartToken: token
-  });
-
-  return res.json({ ok: true, event: 'view_content_sent' });
 });
 
 app.get('/', (req, res) => res.send('TurboBot webhook running (funnel + Hinglish + no duplicate spam)'));
