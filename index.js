@@ -62,14 +62,14 @@ async function sendLead(leadData) {
 }
 const crypto = require('crypto');
 
-async function sendMetaLeadEvent({ phone, eventId }) {
+async function sendMetaLeadEvent({ phone, eventId, ua, ip }) {
   try {
     if (!process.env.META_ACCESS_TOKEN || !process.env.META_PIXEL_ID) {
       console.warn('Meta CAPI env vars missing');
       return;
     }
 
-    // normalize phone (Meta needs E.164 without +)
+    // 1️⃣ Normalize phone (Meta wants digits only, country included)
     let cleanPhone = String(phone || '').replace(/\D/g, '');
     if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
 
@@ -78,6 +78,7 @@ async function sendMetaLeadEvent({ phone, eventId }) {
       .update(cleanPhone)
       .digest('hex');
 
+    // 2️⃣ Build Meta payload WITH UA & IP
     const payload = {
       data: [
         {
@@ -86,7 +87,9 @@ async function sendMetaLeadEvent({ phone, eventId }) {
           action_source: 'system_generated',
           event_id: eventId,
           user_data: {
-            ph: hashedPhone
+            ph: hashedPhone,
+            client_ip_address: ip || undefined,
+            client_user_agent: ua || undefined
           }
         }
       ],
@@ -593,9 +596,11 @@ const ip =
 
     // 🔥 FIRE META LEAD EVENT (ONCE PER USER)
     await sendMetaLeadEvent({
-      phone: from,
-      eventId: msgId
-    });
+  phone: from,
+  eventId: msgId,
+  ua,
+  ip
+});
   }
 
   await sendLead({
