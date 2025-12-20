@@ -80,24 +80,24 @@ async function sendMetaLeadEvent({ phone, eventId, ua, ip }) {
 
     // 2️⃣ Build Meta payload WITH UA & IP
     const payload = {
-      data: [
-        {
-          event_name: 'Lead',
-          event_time: Math.floor(Date.now() / 1000),
-          action_source: 'system_generated',
-          event_id: eventId,
-          user_data: {
-            ph: hashedPhone,
-            client_ip_address: ip || undefined,
-            client_user_agent: ua || undefined
-          }
-        }
-      ],
-      ...(process.env.META_TEST_CODE
-        ? { test_event_code: process.env.META_TEST_CODE }
-        : {})
-    };
-
+  data: [
+    {
+      event_name: 'Lead',
+      event_time: Math.floor(Date.now() / 1000),
+      action_source: 'system_generated',
+      event_id: eventId,
+      user_data: {
+        ph: hashedPhone,
+        client_ip_address: ip,
+        client_user_agent: ua
+      }
+    }
+  ],
+  ...(process.env.META_TEST_CODE
+    ? { test_event_code: process.env.META_TEST_CODE }
+    : {})
+};
+    
     const url = `https://graph.facebook.com/v18.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`;
 
     const res = await axios.post(url, payload);
