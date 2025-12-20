@@ -517,6 +517,12 @@ app.post('/webhook', async (req, res) => {
     const msgId = message.id;          // WhatsApp message id
     const from = message.from;
     const text = (message.text && message.text.body) || '';
+    // --- Capture user agent & IP ---
+const ua = req.headers['user-agent'] || '';
+const ip =
+  req.headers['x-forwarded-for'] ||
+  req.socket?.remoteAddress ||
+  '';
 
     // ✅ DUPLICATE PROTECTION BY MESSAGE ID
     if (msgId && processedMessageIds.has(msgId)) {
@@ -593,15 +599,17 @@ app.post('/webhook', async (req, res) => {
   }
 
   await sendLead({
-    from,
-    text,
-    aiReply: reply,
-    userLang,
-    intent: usedIntent,
-    high_intent: highIntentFlag,
-    messageId: msgId,
-    timestamp: new Date().toISOString()
-  });
+  from,
+  text,
+  aiReply: reply,
+  userLang,
+  intent: usedIntent,
+  high_intent: highIntentFlag,
+  ua,
+  ip,
+  messageId: msgId,
+  timestamp: new Date().toISOString()
+});
 }
 
     return res.sendStatus(200);
