@@ -509,48 +509,53 @@ async function sendMetaLeadEvent({ phone, smartToken }) {
 }
 
 // ===== META CAPI: SEND VIEW CONTENT EVENT =====
-async function sendMetaViewContentEvent({ smartToken }) {
+async function sendMetaViewContentEvent({ phone, smartToken }) {
   if (!process.env.META_PIXEL_ID || !process.env.META_ACCESS_TOKEN) {
     console.warn('Meta CAPI env vars missing, skipping ViewContent');
     return;
   }
 
-  try {
-    const payload = {
-      data: [
-        {
-          event_name: 'ViewContent',
-          event_time: Math.floor(Date.now() / 1000),
-          action_source: 'website',
-          event_id: `vc_${smartToken || Date.now()}`,
-          custom_data: {
-            content_name: 'Turbo Thrill V5',
-            content_type: 'product',
-            currency: 'INR',
-            value: 441
-          }
-        }
-      ],
-      test_event_code: process.env.META_TEST_CODE
-    };
+  // 1️⃣ Normalize + hash phone
+  const normalizedPhone = String(phone).replace(/\D/g, '');
+  const hashedPhone = crypto
+    .createHash('sha256')
+    .update(normalizedPhone)
+    .digest('hex');
 
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`,
+  const payload = {
+    data: [
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        event_name: 'ViewContent',
+        event_time: Math.floor(Date.now() / 1000),
+        action_source: 'website',
+        event_id: `vc_${smartToken}`,
+        user_data: {
+          ph: [hashedPhone],
+          external_id: smartToken
+        },
+        custom_data: {
+          content_name: 'Turbo Thrill V5',
+          content_type: 'product',
+          currency: 'INR',
+          value: 441
+        }
       }
-    );
+    ],
+    test_event_code: process.env.META_TEST_CODE
+  };
 
-    const result = await response.json();
-    console.log('Meta ViewContent Sent:', result);
-  } catch (err) {
-    console.error('Meta ViewContent Error:', err.message || err);
-  }
+  const response = await fetch(
+    `https://graph.facebook.com/v19.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }
+  );
+
+  const result = await response.json();
+  console.log('Meta ViewContent Sent:', result);
 }
-
-
 // ----- Webhook endpoints -----
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -683,15 +688,17 @@ if (!metaLeadSent.has(from)) {
 // ===== META VIEW CONTENT ENDPOINT =====
 app.post('/meta/view', async (req, res) => {
   try {
-    const token = req.query.token || null;
+    const { token, phone } = req.body || {};
 
-    console.log('[META VIEW] query:', req.query);
-    console.log('[META VIEW] token received:', token);
+console.log('[META VIEW] full body:', req.body);
+console.log('[META VIEW] token:', token);
+console.log('[META VIEW] phone:', phone);
 
-    if (!token) {
-      return res.status(400).json({ ok: false, error: 'token_missing' });
-    }
-
+if (!token || !phone) {
+  console.warn('[META VIEW] missing token or phone');
+  return res.json({ ok: false, reason: 'missing_identity' });
+}
+    
     await sendMetaViewContentEvent({
       smartToken: token
     });
