@@ -687,27 +687,23 @@ if (!metaLeadSent.has(from)) {
 
 // ===== META VIEW CONTENT ENDPOINT =====
 app.post('/meta/view', async (req, res) => {
-  try {
-    const { token, phone } = req.body || {};
+  const { token, phone } = req.body || {};
 
-console.log('[META VIEW] full body:', req.body);
-console.log('[META VIEW] token:', token);
-console.log('[META VIEW] phone:', phone);
+  console.log('[META VIEW] full body:', req.body);
+  console.log('[META VIEW] token:', token);
+  console.log('[META VIEW] phone:', phone);
 
-if (!token || !phone) {
-  console.warn('[META VIEW] missing token or phone');
-  return res.json({ ok: false, reason: 'missing_identity' });
-}
-    
-    await sendMetaViewContentEvent({
-      smartToken: token
-    });
-
-    return res.json({ ok: true, event: 'view_content_sent', token });
-  } catch (err) {
-    console.error('ViewContent endpoint error:', err);
-    return res.status(500).json({ ok: false });
+  if (!token || !phone) {
+    console.warn('[META VIEW] missing token or phone');
+    return res.json({ ok: false, reason: 'missing_identity' });
   }
+
+  await sendMetaViewContentEvent({
+    phone,
+    smartToken: token
+  });
+
+  return res.json({ ok: true, event: 'view_content_sent' });
 });
 
 app.get('/', (req, res) => res.send('TurboBot webhook running (funnel + Hinglish + no duplicate spam)'));
