@@ -60,6 +60,52 @@ async function sendLead(leadData) {
     );
   }
 }
+const crypto = require('crypto');
+
+async function sendMetaLeadEvent({ phone, eventId }) {
+  try {
+    if (!process.env.META_ACCESS_TOKEN || !process.env.META_PIXEL_ID) {
+      console.warn('Meta CAPI env vars missing');
+      return;
+    }
+
+    // normalize phone (Meta needs E.164 without +)
+    let cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+    const hashedPhone = crypto
+      .createHash('sha256')
+      .update(cleanPhone)
+      .digest('hex');
+
+    const payload = {
+      data: [
+        {
+          event_name: 'Lead',
+          event_time: Math.floor(Date.now() / 1000),
+          action_source: 'system_generated',
+          event_id: eventId,
+          user_data: {
+            ph: hashedPhone
+          }
+        }
+      ],
+      ...(process.env.META_TEST_CODE
+        ? { test_event_code: process.env.META_TEST_CODE }
+        : {})
+    };
+
+    const url = `https://graph.facebook.com/v18.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`;
+
+    const res = await axios.post(url, payload);
+    console.log('Meta Lead Event Sent:', res.data);
+  } catch (err) {
+    console.error(
+      'Meta CAPI error:',
+      err?.response?.data || err.message
+    );
+  }
+}
 
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
@@ -530,28 +576,33 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (reply && reply.trim()) {
-      await sendWhatsAppText(from, reply);
-      seenUsers.add(from);
-      
-      let highIntentFlag = 'NO';
+  await sendWhatsAppText(from, reply);
+  seenUsers.add(from);
 
-if (isHighIntent(text) && !highIntentUsers.has(from)) {
-  highIntentFlag = 'YES';
-  highIntentUsers.add(from); // lock per user
+  let highIntentFlag = 'NO';
+
+  if (isHighIntent(text) && !highIntentUsers.has(from)) {
+    highIntentFlag = 'YES';
+    highIntentUsers.add(from);
+
+    // 🔥 FIRE META LEAD EVENT (ONCE PER USER)
+    await sendMetaLeadEvent({
+      phone: from,
+      eventId: msgId
+    });
+  }
+
+  await sendLead({
+    from,
+    text,
+    aiReply: reply,
+    userLang,
+    intent: usedIntent,
+    high_intent: highIntentFlag,
+    messageId: msgId,
+    timestamp: new Date().toISOString()
+  });
 }
-
-await sendLead({
-  from,
-  text,
-  aiReply: reply,
-  userLang,
-  intent: usedIntent,
-  high_intent: highIntentFlag,
-  messageId: msgId,
-  timestamp: new Date().toISOString()
-});
-
-    }
 
     return res.sendStatus(200);
   } catch (err) {
