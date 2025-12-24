@@ -226,7 +226,7 @@ Why bikers love it:
 • Easy install (tape + glue included)
 • Long lasting
 
-Price today: ₹452 (COD Available)
+Price today: ₹468 (COD Available)
 Order karne ke liye bol do: ORDER`
 );
 
@@ -240,7 +240,7 @@ ${FLIPKART_LINK}
 🚚 Fast delivery`
 );
 
-const MSG_PRICE = `Bro price sirf ₹452 hai Flipkart pe.
+const MSG_PRICE = `Bro price sirf ₹468 hai Flipkart pe.
 COD + fast delivery mil jayegi.
 Buy → type ORDER`;
 
@@ -347,7 +347,7 @@ async function sendWhatsAppText(to, text) {
 
 // ----- OpenAI brain with your full training prompt -----
 const OPENAI_FALLBACK_REPLY = (FLIPKART_LINK, DEMO_VIDEO_LINK) =>
-`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n\n🏁 Price under ₹452 — Limited Stock hai!\n🚀 Flipkart link: ${FLIPKART_LINK}\n⚡ Demo: ${DEMO_VIDEO_LINK}\n\nUse only in open safe space; avoid fuel/people. 😎`;
+`Okay bro! 👋 Turbo Thrill V5 — demo chahiye ya Flipkart link bheju?\n\n🏁 Price under ₹468 — Limited Stock hai!\n🚀 Flipkart link: ${FLIPKART_LINK}\n⚡ Demo: ${DEMO_VIDEO_LINK}\n\nUse only in open safe space; avoid fuel/people. 😎`;
 
 const tunedSystemPrompt = `
 🎯 Goal: Convert every chat into a Flipkart sale using a fun, emotional Hinglish tone (like a cool biker friend).
@@ -405,7 +405,7 @@ Why bikers love it:
 • Easy install (tape + glue included)
 • Long lasting
 
-Price today: ₹452 (COD Available)
+Price today: ₹468 (COD Available)
 Order karne ke liye bol do: ORDER"
 
 STEP 3: ORDER RESPONSE (ORDER/BUY/LINK/FLIPKART)
@@ -418,7 +418,7 @@ ${FLIPKART_LINK}
 🚚 Fast delivery"
 
 STEP 7: PRICE
-"Bro price sirf ₹452 hai Flipkart pe.
+"Bro price sirf ₹468 hai Flipkart pe.
 COD + fast delivery mil jayegi.
 Buy → type ORDER"
 
