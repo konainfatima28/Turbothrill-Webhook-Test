@@ -60,55 +60,6 @@ async function sendLead(leadData) {
     );
   }
 }
-const crypto = require('crypto');
-
-async function sendMetaLeadEvent({ phone, eventId, ua, ip }) {
-  try {
-    if (!process.env.META_ACCESS_TOKEN || !process.env.META_PIXEL_ID) {
-      console.warn('Meta CAPI env vars missing');
-      return;
-    }
-
-    // 1️⃣ Normalize phone (Meta wants digits only, country included)
-    let cleanPhone = String(phone || '').replace(/\D/g, '');
-    if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
-
-    const hashedPhone = crypto
-      .createHash('sha256')
-      .update(cleanPhone)
-      .digest('hex');
-
-    // 2️⃣ Build Meta payload WITH UA & IP
-    const payload = {
-  data: [
-    {
-      event_name: 'Lead',
-      event_time: Math.floor(Date.now() / 1000),
-      action_source: 'system_generated',
-      event_id: eventId,
-      user_data: {
-        ph: hashedPhone,
-        client_ip_address: ip,
-        client_user_agent: ua
-      }
-    }
-  ],
-  ...(process.env.META_TEST_CODE
-    ? { test_event_code: process.env.META_TEST_CODE }
-    : {})
-};
-    
-    const url = `https://graph.facebook.com/v18.0/${process.env.META_PIXEL_ID}/events?access_token=${process.env.META_ACCESS_TOKEN}`;
-
-    const res = await axios.post(url, payload);
-    console.log('Meta Lead Event Sent:', res.data);
-  } catch (err) {
-    console.error(
-      'Meta CAPI error:',
-      err?.response?.data || err.message
-    );
-  }
-}
 
 // ----- Defensive global handlers -----
 process.on('uncaughtException', (err) => {
@@ -590,18 +541,10 @@ const ip =
 
   let highIntentFlag = 'NO';
 
-  if (isHighIntent(text) && !highIntentUsers.has(from)) {
-    highIntentFlag = 'YES';
-    highIntentUsers.add(from);
-
-    // 🔥 FIRE META LEAD EVENT (ONCE PER USER)
-    await sendMetaLeadEvent({
-  phone: from,
-  eventId: msgId,
-  ua,
-  ip
-});
-  }
+ if (isHighIntent(text) && !highIntentUsers.has(from)) {
+  highIntentFlag = 'YES';
+  highIntentUsers.add(from);
+}
 
   await sendLead({
   from,
