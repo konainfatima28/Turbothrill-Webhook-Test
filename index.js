@@ -164,7 +164,7 @@ Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
 Night rides, reels & group rides ke liye next-level!
 Demo chahiye? type karo DEMO
-Buy karna hai? type karo ORDER`;
+Order karna hai? type karo ORDER`;
 
 const MSG_DEMO = () => (
 `🔥 Demo Video:
