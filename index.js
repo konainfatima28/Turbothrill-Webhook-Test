@@ -163,7 +163,7 @@ Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
 Night rides, reels & group rides ke liye next-level!
-Demo chahiye? type karo DEMO
+
 Order karna hai? type karo ORDER`;
 
 const MSG_DEMO = () => (
@@ -342,7 +342,7 @@ Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
 Night rides, reels & group rides ke liye next-level!
-Demo chahiye? type karo DEMO
+
 Buy karna hai? type karo ORDER"
 
 STEP 2: DEMO RESPONSE (DEMO)
