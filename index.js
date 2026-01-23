@@ -46,7 +46,7 @@ async function sendLead(leadData) {
     console.log('[sendLead] Sending to n8n URL:', MAKE_WEBHOOK_URL);
     await axios.post(MAKE_WEBHOOK_URL, leadData, {
       headers: {
-        'Content-Type': 'application/json',
+        'Content-type': 'application/json',
         ...(N8N_SECRET ? { 'x-n8n-secret': N8N_SECRET } : {})
       },
       timeout: 10000
@@ -163,8 +163,8 @@ Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
 Night rides, reels & group rides ke liye next-level!
-Demo chahiye? Bol do DEMO
-Buy karna hai? Bol do ORDER`;
+Demo chahiye? type karo DEMO
+Buy karna hai? type karo ORDER`;
 
 const MSG_DEMO = () => (
 `🔥 Demo Video:
@@ -178,7 +178,7 @@ Why bikers love it:
 • Long lasting
 
 Price today: ₹488 (COD Available)
-Order karne ke liye bol do: ORDER`
+Order karne ke liye type karo: ORDER`
 );
 
 const MSG_ORDER = () => (
@@ -277,7 +277,7 @@ async function sendWhatsAppText(to, text) {
       }),
       headers: {
         Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        'Content-Type': 'application/json'
+        'Content-type': 'application/json'
       }
     });
 
@@ -342,8 +342,8 @@ Ye Turbo Thrill ka THRILL V5 Spark Slider hai!
 Boot drag karte hi REAL golden sparks nikalte hain 😎🔥
 
 Night rides, reels & group rides ke liye next-level!
-Demo chahiye? Bol do DEMO
-Buy karna hai? Bol do ORDER"
+Demo chahiye? type karo DEMO
+Buy karna hai? type karo ORDER"
 
 STEP 2: DEMO RESPONSE (DEMO)
 "🔥 Demo Video:
@@ -357,7 +357,7 @@ Why bikers love it:
 • Long lasting
 
 Price today: ₹488 (COD Available)
-Order karne ke liye bol do: ORDER"
+Order karne ke liye type karo: ORDER"
 
 STEP 3: ORDER RESPONSE (ORDER/BUY/LINK/FLIPKART)
 "Bro, Flipkart pe COD & fast delivery mil jayegi 👇
@@ -414,7 +414,7 @@ async function callOpenAI(userMessage) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
-        'Content-Type': 'application/json'
+        'Content-type': 'application/json'
       },
       body: JSON.stringify(payload)
     });
