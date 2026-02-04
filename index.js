@@ -113,13 +113,19 @@ const STEP = {
 // ================= HELPERS =================
 function detectIntent(text = '') {
   const t = text.toLowerCase().trim();
+
   if (t.includes('track')) return 'track';
   if (t.includes('order') || t.includes('buy')) return 'order';
-  if (t.includes('price')) return 'price';
-  if (t.includes('install')) return 'install';
-  if (t.includes('bulk')) return 'bulk';
-  if (t.includes('demo')) return 'demo';
+  if (t.includes('price') || t.includes('cost')) return 'price';
+  if (t.includes('install') || t.includes('lagana')) return 'install';
+  if (t.includes('bulk') || t.includes('group')) return 'bulk';
+  if (t.includes('demo') || t.includes('video')) return 'demo';
+  if (t.includes('shipping') || t.includes('delivery time')) return 'shipping';
+  if (t.includes('cod') || t.includes('cash')) return 'cod';
+  if (t.includes('refund') || t.includes('return')) return 'return';
+  if (t.includes('safe') || t.includes('legal')) return 'safety';
   if (t.includes('human') || t.includes('agent')) return 'human';
+
   return 'unknown';
 }
 
@@ -187,6 +193,63 @@ const MSG_HUMAN = `Connecting you to support 👤
 
 const MSG_FALLBACK = `Please type:
 TRACK | PRICE | ORDER | HUMAN`;
+
+const MSG_PRODUCT = `Great choice! 🔥 Turbo Thrill V5 Obsidian special:
+
+✨ Creates MASSIVE golden sparks
+🪨 Volcanic alloy – super durable
+🧲 3M VHB adhesive (35mm × 45mm)
+🛡️ Quality ABS body
+💪 Trusted by 400+ riders
+
+💰 Price:
+1 piece → ₹449 (70% OFF)
+
+Reply:
+INSTALL | PRICE | ORDER`;
+
+const MSG_SHIPPING = `Here’s the delivery scoop 📦
+
+🚀 Processing: within 24 hours
+🏙️ Metro cities: 3–4 days
+🌆 Tier 2 cities: 4–6 days
+🏞️ Remote areas: 5–7 days
+
+✅ FREE shipping
+❌ COD not available (prepaid only)
+
+Track anytime via WhatsApp 🔥`;
+
+const MSG_COD = `Good question! 💡 We’re prepaid only because:
+
+✅ Prices stay LOW (₹449 vs ₹1,499)
+✅ Faster delivery (no COD delays)
+✅ Better tracking & support
+✅ FREE shipping
+
+We accept:
+UPI • Cards • Net Banking • Wallets
+
+Order here:
+${WEBSITE_LINK}`;
+
+const MSG_SAFETY = `Safety first ⚠️
+
+✅ Always wear full riding gear
+• Helmet
+• Jacket
+• Gloves
+• Riding boots
+
+⚠️ Use only in safe, controlled areas
+⚠️ Check local laws
+⚠️ Sparks reduce traction slightly
+⚠️ 18+ riders only
+
+Ride safe 🏍️`;
+
+
+
 
 // ================= SENDERS =================
 async function sendWhatsAppText(to, text) {
@@ -281,12 +344,17 @@ ${tracking.url}`;
     }
 
     let reply = MSG_FALLBACK;
+
     if (intent === 'order') reply = MSG_ORDER;
     else if (intent === 'price') reply = MSG_PRICE;
     else if (intent === 'install') reply = MSG_INSTALL;
     else if (intent === 'bulk') reply = MSG_BULK;
     else if (intent === 'demo') reply = MSG_DEMO;
+    else if (intent === 'shipping') reply = MSG_SHIPPING;
+    else if (intent === 'cod') reply = MSG_COD;
+    else if (intent === 'safety') reply = MSG_SAFETY;
     else if (intent === 'human') reply = MSG_HUMAN;
+    else if (intent === 'product') reply = MSG_PRODUCT;
 
     await sendWhatsAppText(from, reply);
     await sendLead({ from, text, intent });
