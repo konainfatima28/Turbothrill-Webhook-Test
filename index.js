@@ -140,17 +140,24 @@ function detectIntent(text = '') {
   return 'unknown';
 }
 
+function isBusinessHours() {
+  const hour = new Date().getHours();
+  return hour >= 10 && hour < 19; // 10 AM – 7 PM IST
+}
+
 // ================= MESSAGES =================
 const WELCOME_MESSAGE = `Hey there, Rider! 🔥
 
-Welcome to Turbo Thrill! I can help with:
-⚡ Order tracking
-🏍️ Product details
-💰 Pricing
-📦 Shipping
+Welcome to *Turbo Thrill* ⚡  
+I can help you with:
 
-Type:
-TRACK | PRODUCT | PRICE | ORDER | HUMAN`;
+1️⃣ Track my order  
+2️⃣ Product details  
+3️⃣ Pricing & offers  
+4️⃣ Place order  
+5️⃣ Talk to human 👤  
+
+Reply with the *number* or your question 😊`;
 
 const MSG_TRACK_REQUEST = `Sure! 📦  
 Please send your **order number**  
@@ -259,8 +266,24 @@ const MSG_SAFETY = `Safety first ⚠️
 
 Ride safe 🏍️`;
 
+const MSG_RETURN = `We’ve got you covered 🛡️
 
+✅ 7-Day Quality Guarantee
 
+You can return if:
+• Item damaged in transit
+• Manufacturing defect
+• Wrong item received
+• Unused & original packaging
+
+📧 Email: ${SUPPORT_CONTACT}
+Send:
+• Order number
+• Issue details
+• Photos
+
+⏱️ Response within 24 hrs
+💰 Refund in 5–7 days`;
 
 // ================= SENDERS =================
 async function sendWhatsAppText(to, text) {
@@ -368,6 +391,7 @@ ${tracking.url}`;
     let reply = MSG_FALLBACK;
 
     if (intent === 'order') reply = MSG_ORDER;
+    else if (intent === 'return') reply = MSG_RETURN;
     else if (intent === 'price') reply = MSG_PRICE;
     else if (intent === 'install') reply = MSG_INSTALL;
     else if (intent === 'bulk') reply = MSG_BULK;
@@ -375,8 +399,31 @@ ${tracking.url}`;
     else if (intent === 'shipping') reply = MSG_SHIPPING;
     else if (intent === 'cod') reply = MSG_COD;
     else if (intent === 'safety') reply = MSG_SAFETY;
-    else if (intent === 'human') reply = MSG_HUMAN;
     else if (intent === 'product') reply = MSG_PRODUCT;
+    else if (intent === 'human') {
+      if (isBusinessHours()) {
+        reply = `Connecting you to our support team 👤
+
+      🕐 We’re available now
+      📧 ${SUPPORT_CONTACT}
+
+      Please briefly describe your issue 🙏`;
+        } else {
+          reply = `Our team is currently offline 🌙
+
+          🕐 Business hours:
+          10 AM – 7 PM (Mon–Sat)
+          
+          Meanwhile, I can help with:
+          • Order tracking
+          • Product details
+          • Pricing & shipping
+          
+          Or email us:
+          ${SUPPORT_CONTACT}`;
+            }
+          }
+         
 
     await sendWhatsAppText(from, reply);
     await sendLead({ from, text, intent });
