@@ -184,8 +184,9 @@ function detectIntent(text = '') {
 }
 
 function isBusinessHours() {
-  const hour = new Date().getHours();
-  return hour >= 10 && hour < 19; // 10 AM – 7 PM IST
+  const now = new Date();
+  const istHour = (now.getUTCHours() + 5.5) % 24;
+  return istHour >= 10 && istHour < 19;
 }
 
 // ================= MESSAGES =================
@@ -386,6 +387,7 @@ app.post('/webhook', async (req, res) => {
 
     const from = message.from;
     const text = message.text?.body || '';
+    const normalizedText = text.trim();
 
     const user = await getUserState(from);
     
@@ -405,14 +407,33 @@ app.post('/webhook', async (req, res) => {
 
     // ===== TRACK FLOW =====
     if (currentStep === STEP.AWAITING_ORDER_INPUT) {
+
+      if (!SHOPIFY_ADMIN_TOKEN || !SHOPIFY_STORE_DOMAIN) {
+        await sendWhatsAppText(
+          from,
+          `Order tracking is temporarily unavailable 😕  
+    Please type *HUMAN* to connect with support.`
+        );
+        return res.sendStatus(200);
+      }
+    
       const order = await findOrderByLookup(text);
+
+
 
       if (!order) {
         await sendWhatsAppText(
           from,
-          `Order not found 😕  
-          Please check order number or type HUMAN`
+          `I couldn’t find an order with that info 😕  
+
+        Please try again with:
+        • Order number
+        • Phone
+        • Email  
+        
+        Or type *HUMAN* for help 👤`
         );
+        
       } else {
         const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
         let reply = `📦 Order ${order.name}
