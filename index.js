@@ -44,8 +44,11 @@ async function shopifyFetch(query, variables = {}) {
   return res.json();
 }
 
-async function findOrderByQuery(queryText) {
-  const query = `
+async function findOrderByLookup(text) {
+  const { query } = detectOrderLookupType(text);
+  if (!query) return null;
+
+  const gql = `
     query ($query: String!) {
       orders(first: 1, query: $query) {
         edges {
@@ -66,7 +69,7 @@ async function findOrderByQuery(queryText) {
     }
   `;
 
-  const res = await shopifyFetch(query, { query: queryText });
+  const res = await shopifyFetch(gql, { query });
   return res?.data?.orders?.edges?.[0]?.node || null;
 }
 
@@ -115,6 +118,27 @@ const STEP = {
 };
 
 // ================= HELPERS =================
+function detectOrderLookupType(text = '') {
+  const t = text.trim();
+
+  // Order number like #1023
+  if (t.startsWith('#')) {
+    return { type: 'order_number', query: `name:${t}` };
+  }
+
+  // Phone number (India – 10 digits)
+  if (/^\d{10}$/.test(t)) {
+    return { type: 'phone', query: `phone:${t}` };
+  }
+
+  // Email
+  if (t.includes('@')) {
+    return { type: 'email', query: `email:${t}` };
+  }
+
+  return { type: 'unknown', query: null };
+}
+
 function detectIntent(text = '') {
   const t = text.toLowerCase().trim();
 
@@ -160,8 +184,13 @@ I can help you with:
 Reply with the *number* or your question 😊`;
 
 const MSG_TRACK_REQUEST = `Sure! 📦  
-Please send your **order number**  
-(example: #1023)`;
+Please send **any one** of these:
+
+• Order number (example: #1023)
+• Mobile number used in order
+• Email used at checkout
+
+I’ll find it for you instantly 🔍`;
 
 const MSG_ORDER = `Order here 🔥
 ${WEBSITE_LINK}
@@ -352,7 +381,7 @@ app.post('/webhook', async (req, res) => {
 
     // ===== TRACK FLOW =====
     if (currentStep === STEP.AWAITING_ORDER_INPUT) {
-      const order = await findOrderByQuery(text);
+      const order = await findOrderByLookup(text);
 
       if (!order) {
         await sendWhatsAppText(
