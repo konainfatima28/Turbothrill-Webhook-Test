@@ -23,6 +23,41 @@ const TRACKING_LINK = process.env.TRACKING_LINK || "https://turbo-thrill.shiproc
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const PORT = process.env.PORT || 3000;
 
+// ===== SUPABASE SETUP =====
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+// Get user state
+async function getUserState(phone) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/whatsapp_users?phone=eq.${phone}`,
+    {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    }
+  );
+
+  const data = await res.json();
+  return data[0] || null;
+}
+
+// Insert or update user state
+async function upsertUserState(payload) {
+  await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_users`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+
 // ================= N8N =================
 const MAKE_WEBHOOK_URL =
   process.env.MAKE_WEBHOOK_URL ||
@@ -206,6 +241,13 @@ app.post('/webhook', async (req, res) => {
     const msgId = message.id;
     const from = message.from;
     const text = message.text?.body || '';
+    
+    // ---- SUPABASE: ensure user exists ----
+await upsertUserState({
+  phone: from,
+  step: 'IDLE',
+  last_seen: new Date().toISOString(),
+});
 
     if (processedMessageIds.has(msgId)) {
       return res.sendStatus(200);
