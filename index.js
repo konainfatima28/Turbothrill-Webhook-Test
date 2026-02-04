@@ -437,8 +437,8 @@ app.post('/webhook', async (req, res) => {
       } else {
         const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
         let reply = `📦 Order ${order.name}
-        💳 ${order.displayFinancialStatus}
-        🚚 ${order.displayFulfillmentStatus}`;
+      💳 ${order.displayFinancialStatus}
+      🚚 ${order.displayFulfillmentStatus}`;
 
         if (tracking?.url) {
           reply += `
@@ -447,7 +447,7 @@ app.post('/webhook', async (req, res) => {
         ${tracking.url}`;
         } else {
           reply += `
-          📍 Tracking will be available once shipped`;
+      📍 Tracking will be available once shipped`;
         }
 
         await sendWhatsAppText(from, reply);
@@ -502,18 +502,18 @@ app.post('/webhook', async (req, res) => {
         } else {
           reply = `Our team is currently offline 🌙
 
-          🕐 Business hours:
-          10 AM – 7 PM (Mon–Sat)
+      🕐 Business hours:
+      10 AM – 7 PM (Mon–Sat)
           
-          Meanwhile, I can help with:
-          • Order tracking
-          • Product details
-          • Pricing & shipping
+      Meanwhile, I can help with:
+        • Order tracking
+        • Product details
+        • Pricing & shipping
           
-          Or email us:
-          ${SUPPORT_CONTACT}`;
-            }
+       Or email us:
+        ${SUPPORT_CONTACT}`;
           }
+        }
          
 
     await sendWhatsAppText(from, reply);
