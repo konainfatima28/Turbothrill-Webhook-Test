@@ -12,7 +12,6 @@ app.use(bodyParser.json());
 // ================= ENV =================
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.PHONE_ID;
-const OPENAI_KEY = process.env.OPENAI_KEY;
 
 const WEBSITE_LINK = process.env.WEBSITE_LINK || "https://turbothrill.in";
 const FLIPKART_LINK = process.env.FLIPKART_LINK || "https://www.flipkart.com";
@@ -23,11 +22,16 @@ const TRACKING_LINK = process.env.TRACKING_LINK || "https://turbo-thrill.shiproc
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "turbothrill123";
 const PORT = process.env.PORT || 3000;
 
-// ===== SUPABASE SETUP =====
+// ================= CONVERSATION STEPS =================
+const STEP = {
+  IDLE: 'IDLE',
+  AWAITING_ORDER_INPUT: 'AWAITING_ORDER_INPUT',
+};
+
+// ================= SUPABASE SETUP =================
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-// Get user state
 async function getUserState(phone) {
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/whatsapp_users?phone=eq.${phone}`,
@@ -38,12 +42,10 @@ async function getUserState(phone) {
       },
     }
   );
-
   const data = await res.json();
   return data[0] || null;
 }
 
-// Insert or update user state
 async function upsertUserState(payload) {
   await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_users`, {
     method: 'POST',
@@ -57,7 +59,6 @@ async function upsertUserState(payload) {
   });
 }
 
-
 // ================= N8N =================
 const MAKE_WEBHOOK_URL =
   process.env.MAKE_WEBHOOK_URL ||
@@ -65,16 +66,8 @@ const MAKE_WEBHOOK_URL =
     ? 'http://localhost:5678/webhook-test/lead-logger'
     : 'https://turbothrill-n8n.onrender.com/webhook/lead-logger');
 
-// ================= STATE (PHASE-1 IN-MEMORY) =================
+// ================= STATE =================
 const processedMessageIds = new Set(); // duplicate protection
-const seenUsers = new Set();           // welcome logic
-
-const STEP = {
-  IDLE: 'IDLE',
-  AWAITING_ORDER_INPUT: 'AWAITING_ORDER_INPUT'
-};
-
-const userSteps = new Map(); // phone → step
 
 // ================= HELPERS =================
 function detectIntent(text = '') {
@@ -119,12 +112,10 @@ const MSG_TRACK_REQUEST = `Sure! 📦
 Please share your **order number**  
 or **registered phone/email**.`;
 
-const MSG_TRACK_PLACEHOLDER = `Thanks! 📦
+const MSG_TRACK_RESPONSE = `Thanks! 📦
 
 Track your order here:
-🔗 ${TRACKING_LINK}
-
-(Direct order lookup coming next 🔥)`;
+🔗 ${TRACKING_LINK}`;
 
 const MSG_ORDER = `Order directly here 🔥
 ${WEBSITE_LINK}
@@ -197,14 +188,14 @@ async function sendWhatsAppText(to, text) {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
       to,
       type: "text",
-      text: { body: text }
-    })
+      text: { body: text },
+    }),
   });
 }
 
@@ -212,7 +203,7 @@ async function sendLead(data) {
   if (!MAKE_WEBHOOK_URL) return;
   try {
     await axios.post(MAKE_WEBHOOK_URL, data, { timeout: 8000 });
-  } catch (e) {
+  } catch {
     console.error('n8n lead send failed');
   }
 }
@@ -235,78 +226,75 @@ app.post('/webhook', async (req, res) => {
     const entry = req.body.entry?.[0];
     const value = entry?.changes?.[0]?.value;
     const message = value?.messages?.[0];
-
     if (!message) return res.sendStatus(200);
 
     const msgId = message.id;
     const from = message.from;
     const text = message.text?.body || '';
-    
-    // ---- SUPABASE: ensure user exists ----
-await upsertUserState({
-  phone: from,
-  step: 'IDLE',
-  last_seen: new Date().toISOString(),
-});
 
     if (processedMessageIds.has(msgId)) {
       return res.sendStatus(200);
     }
     processedMessageIds.add(msgId);
 
-    let reply = null;
-    let usedIntent = 'none';
+    const user = await getUserState(from);
+    const currentStep = user?.step || STEP.IDLE;
 
-    const currentStep = userSteps.get(from) || STEP.IDLE;
+    // ensure user exists
+    await upsertUserState({
+      phone: from,
+      step: currentStep,
+      last_seen: new Date().toISOString(),
+    });
 
     // ===== STEP HANDLER =====
     if (currentStep === STEP.AWAITING_ORDER_INPUT) {
-      if (text.length >= 4) {
-        reply = MSG_TRACK_PLACEHOLDER;
-        userSteps.set(from, STEP.IDLE);
-        usedIntent = 'track_followup';
-      } else {
-        reply = `Please send a valid order number or phone 🙂`;
-        usedIntent = 'track_retry';
-      }
+      await sendWhatsAppText(from, MSG_TRACK_RESPONSE);
+
+      await upsertUserState({
+        phone: from,
+        step: STEP.IDLE,
+        last_seen: new Date().toISOString(),
+      });
+
+      return res.sendStatus(200);
     }
 
-    // ===== INTENT (ONLY IF IDLE) =====
-    if (!reply && currentStep === STEP.IDLE) {
-      const intent = detectIntent(text);
-      usedIntent = intent;
+    // ===== INTENT HANDLING =====
+    const intent = detectIntent(text);
 
-      if (intent === 'track') {
-        reply = MSG_TRACK_REQUEST;
-        userSteps.set(from, STEP.AWAITING_ORDER_INPUT);
-      } else if (intent === 'order') reply = MSG_ORDER;
-      else if (intent === 'price') reply = MSG_PRICE;
-      else if (intent === 'install') reply = MSG_INSTALL;
-      else if (intent === 'bulk') reply = MSG_BULK;
-      else if (intent === 'return') reply = MSG_RETURN;
-      else if (intent === 'demo') reply = MSG_DEMO;
-      else if (intent === 'human') reply = MSG_HUMAN;
+    if (intent === 'track') {
+      await sendWhatsAppText(from, MSG_TRACK_REQUEST);
+
+      await upsertUserState({
+        phone: from,
+        step: STEP.AWAITING_ORDER_INPUT,
+        last_intent: 'track',
+        last_seen: new Date().toISOString(),
+      });
+
+      return res.sendStatus(200);
     }
 
-    // ===== WELCOME =====
-    if (!reply && !seenUsers.has(from)) {
-      reply = WELCOME_MESSAGE;
-      usedIntent = 'welcome';
-    }
+    let reply = MSG_FALLBACK;
 
-    // ===== FALLBACK =====
-    if (!reply) reply = MSG_FALLBACK;
+    if (intent === 'order') reply = MSG_ORDER;
+    else if (intent === 'price') reply = MSG_PRICE;
+    else if (intent === 'install') reply = MSG_INSTALL;
+    else if (intent === 'bulk') reply = MSG_BULK;
+    else if (intent === 'return') reply = MSG_RETURN;
+    else if (intent === 'demo') reply = MSG_DEMO;
+    else if (intent === 'human') reply = MSG_HUMAN;
 
     await sendWhatsAppText(from, reply);
-    seenUsers.add(from);
 
     await sendLead({
       from,
       text,
       reply,
-      intent: usedIntent,
-      step: userSteps.get(from) || STEP.IDLE,
-      timestamp: new Date().toISOString()
+      intent,
+      step: STEP.IDLE,
+      timestamp: new Date().toISOString(),
     });
 
     return res.sendStatus(200);
