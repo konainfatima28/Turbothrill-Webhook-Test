@@ -25,6 +25,10 @@ const SHOPIFY_ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-01";
 
+if (!SHOPIFY_ADMIN_TOKEN || !SHOPIFY_STORE_DOMAIN) {
+  console.warn('⚠️ Shopify credentials missing. Order tracking will not work.');
+}
+
 async function shopifyFetch(query, variables = {}) {
   const res = await fetch(
     `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
@@ -117,13 +121,20 @@ function detectIntent(text = '') {
   if (t.includes('track')) return 'track';
   if (t.includes('order') || t.includes('buy')) return 'order';
   if (t.includes('price') || t.includes('cost')) return 'price';
+  if (t.includes('product') || t.includes('details') || t.includes('v5')) return 'product';
   if (t.includes('install') || t.includes('lagana')) return 'install';
   if (t.includes('bulk') || t.includes('group')) return 'bulk';
   if (t.includes('demo') || t.includes('video')) return 'demo';
-  if (t.includes('shipping') || t.includes('delivery time')) return 'shipping';
+  if (t.includes('shipping') || t.includes('delivery')) return 'shipping';
   if (t.includes('cod') || t.includes('cash')) return 'cod';
   if (t.includes('refund') || t.includes('return')) return 'return';
-  if (t.includes('safe') || t.includes('legal')) return 'safety';
+  if (
+    t.includes('safe') ||
+    t.includes('danger') ||
+    t.includes('illegal') ||
+    t.includes('police') ||
+    t.includes('law')
+  ) return 'safety';
   if (t.includes('human') || t.includes('agent')) return 'human';
 
   return 'unknown';
@@ -134,12 +145,12 @@ const WELCOME_MESSAGE = `Hey there, Rider! 🔥
 
 Welcome to Turbo Thrill! I can help with:
 ⚡ Order tracking
-🏍️ Product info
+🏍️ Product details
 💰 Pricing
 📦 Shipping
 
 Type:
-TRACK | PRICE | ORDER | HUMAN`;
+TRACK | PRODUCT | PRICE | ORDER | HUMAN`;
 
 const MSG_TRACK_REQUEST = `Sure! 📦  
 Please send your **order number**  
@@ -301,9 +312,20 @@ app.post('/webhook', async (req, res) => {
     const text = message.text?.body || '';
 
     const user = await getUserState(from);
-    const currentStep = user?.step || STEP.IDLE;
+    
+    // FIRST-TIME USER WELCOME
+    if (!user) {
+      await sendWhatsAppText(from, WELCOME_MESSAGE);
+      await upsertUserState({
+        phone: from,
+        step: STEP.IDLE,
+        last_seen: new Date().toISOString(),
+      });
+      return res.sendStatus(200);
+    }
 
-    await upsertUserState({ phone: from, step: currentStep });
+
+    const currentStep = user.step;
 
     // ===== TRACK FLOW =====
     if (currentStep === STEP.AWAITING_ORDER_INPUT) {
