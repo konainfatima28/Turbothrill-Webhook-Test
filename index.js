@@ -30,18 +30,37 @@ if (!SHOPIFY_ADMIN_TOKEN || !SHOPIFY_STORE_DOMAIN) {
 }
 
 async function shopifyFetch(query, variables = {}) {
-  const res = await fetch(
-    `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': SHOPIFY_ADMIN_TOKEN,
-      },
-      body: JSON.stringify({ query, variables }),
+  try {
+    const res = await fetch(
+      `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': SHOPIFY_ADMIN_TOKEN,
+        },
+        body: JSON.stringify({ query, variables }),
+      }
+    );
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('❌ Shopify API error:', res.status, errorText);
+      return null;
     }
-  );
-  return res.json();
+
+    const json = await res.json();
+
+    if (json.errors) {
+      console.error('❌ Shopify GraphQL errors:', JSON.stringify(json.errors));
+      return null;
+    }
+
+    return json;
+  } catch (err) {
+    console.error('❌ Shopify fetch failed:', err.message);
+    return null;
+  }
 }
 
 async function findOrderByLookup(text) {
@@ -111,7 +130,6 @@ const MAKE_WEBHOOK_URL =
 
 // ================= STATE =================
 const processedMessageIds = new Set();
-
 const STEP = {
   IDLE: 'IDLE',
   AWAITING_ORDER_INPUT: 'AWAITING_ORDER_INPUT',
@@ -121,19 +139,20 @@ const STEP = {
 function detectOrderLookupType(text = '') {
   const t = text.trim();
 
-  // Order number like #1023
+  // Order number (#1023)
   if (t.startsWith('#')) {
     return { type: 'order_number', query: `name:${t}` };
-  }
-
-  // Phone number (India – 10 digits)
-  if (/^\d{10}$/.test(t)) {
-    return { type: 'phone', query: `phone:${t}` };
   }
 
   // Email
   if (t.includes('@')) {
     return { type: 'email', query: `email:${t}` };
+  }
+
+  // Phone (10+ digits)
+  const cleanPhone = t.replace(/\D/g, '');
+  if (cleanPhone.length >= 10) {
+    return { type: 'phone', query: `phone:${cleanPhone}` };
   }
 
   return { type: 'unknown', query: null };
@@ -360,6 +379,11 @@ app.post('/webhook', async (req, res) => {
     if (processedMessageIds.has(msgId)) return res.sendStatus(200);
     processedMessageIds.add(msgId);
 
+    // auto cleanup after 1 hour
+    setTimeout(() => {
+      processedMessageIds.delete(msgId);
+    }, 60 * 60 * 1000);
+
     const from = message.from;
     const text = message.text?.body || '';
 
@@ -387,19 +411,22 @@ app.post('/webhook', async (req, res) => {
         await sendWhatsAppText(
           from,
           `Order not found 😕  
-Please check order number or type HUMAN`
+          Please check order number or type HUMAN`
         );
       } else {
         const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
         let reply = `📦 Order ${order.name}
-💳 ${order.displayFinancialStatus}
-🚚 ${order.displayFulfillmentStatus}`;
+        💳 ${order.displayFinancialStatus}
+        🚚 ${order.displayFulfillmentStatus}`;
 
         if (tracking?.url) {
           reply += `
 
-🔗 Track:
-${tracking.url}`;
+        🔗 Track your shipment:
+        ${tracking.url}`;
+        } else {
+          reply += `
+          📍 Tracking will be available once shipped`;
         }
 
         await sendWhatsAppText(from, reply);
@@ -409,7 +436,21 @@ ${tracking.url}`;
       return res.sendStatus(200);
     }
 
-    const intent = detectIntent(text);
+    let intent;
+
+    if (['1','2','3','4','5'].includes(text.trim())) {
+      const map = {
+        '1': 'track',
+        '2': 'product',
+        '3': 'price',
+        '4': 'order',
+        '5': 'human'
+      };
+      intent = map[text.trim()];
+    } else {
+      intent = detectIntent(text);
+    }
+
 
     if (intent === 'track') {
       await sendWhatsAppText(from, MSG_TRACK_REQUEST);
