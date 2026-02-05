@@ -152,7 +152,7 @@ function detectOrderLookupType(text = '') {
   // Phone (10+ digits)
   const cleanPhone = t.replace(/\D/g, '');
   if (cleanPhone.length >= 10) {
-    return { type: 'phone', query: `phone:${cleanPhone}` };
+    return { type: 'phone', query: `phone:"${cleanPhone}"` };
   }
 
   return { type: 'unknown', query: null };
@@ -160,9 +160,16 @@ function detectOrderLookupType(text = '') {
 
 function looksLikeOrderLookup(text = '') {
   const t = text.trim();
-  if (t.startsWith('#')) return true;
-  if (t.includes('@')) return true;
-  if (t.replace(/\D/g, '').length >= 10) return true;
+
+  // Order number like #1023
+  if (/^#\d+$/.test(t)) return true;
+
+  // Valid email
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) return true;
+
+  // Indian phone number only (10 digits, starts 6–9)
+  if (/^[6-9]\d{9}$/.test(t)) return true;
+
   return false;
 }
 
