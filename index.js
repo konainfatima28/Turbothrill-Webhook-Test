@@ -503,29 +503,29 @@ ${tracking.url}`;
       if (!order) {
         await sendWhatsAppText(
           from,
-    `I couldn’t find an order with that info 😕  
-    
-    Please try again with:
-    • Order number
-    • Phone
-    • Email  
-    
-    Or type *HUMAN* for help 👤`
+`I couldn’t find an order with that info 😕  
+
+Please try again with:
+• Order number
+• Phone
+• Email  
+
+Or type *HUMAN* for help 👤`
         );
       } else {
         const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
         let reply = `📦 Order ${order.name}
-    💳 ${order.displayFinancialStatus}
-    🚚 ${order.displayFulfillmentStatus}`;
+💳 ${order.displayFinancialStatus}
+🚚 ${order.displayFulfillmentStatus}`;
     
         if (tracking?.url) {
           reply += `
     
-    🔗 Track your shipment:
-    ${tracking.url}`;
+🔗 Track your shipment:
+${tracking.url}`;
         } else {
           reply += `
-    📍 Tracking will be available once shipped`;
+📍 Tracking will be available once shipped`;
         }
     
         await sendWhatsAppText(from, reply);
