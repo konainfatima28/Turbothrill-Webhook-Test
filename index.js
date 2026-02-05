@@ -426,9 +426,7 @@ Please type *HUMAN* to connect with support.`
         return res.sendStatus(200);
       }
     
-      const order = await findOrderByLookup(text);
-
-
+      const order = await findOrderByLookup(normalizedText);
 
       if (!order) {
         await sendWhatsAppText(
