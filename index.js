@@ -161,6 +161,15 @@ function detectOrderLookupType(text = '') {
 function detectIntent(text = '') {
   const t = text.toLowerCase().trim();
 
+    // Greetings
+  if (
+    t === 'hi' ||
+    t === 'hello' ||
+    t === 'hey' ||
+    t === 'hii' ||
+    t === 'namaste'
+  ) return 'greeting';
+
   if (t.includes('track')) return 'track';
   if (t.includes('order') || t.includes('buy')) return 'order';
   if (t.includes('price') || t.includes('cost')) return 'price';
@@ -411,8 +420,8 @@ app.post('/webhook', async (req, res) => {
       if (!SHOPIFY_ADMIN_TOKEN || !SHOPIFY_STORE_DOMAIN) {
         await sendWhatsAppText(
           from,
-          `Order tracking is temporarily unavailable 😕  
-    Please type *HUMAN* to connect with support.`
+`Order tracking is temporarily unavailable 😕  
+Please type *HUMAN* to connect with support.`
         );
         return res.sendStatus(200);
       }
@@ -424,30 +433,30 @@ app.post('/webhook', async (req, res) => {
       if (!order) {
         await sendWhatsAppText(
           from,
-          `I couldn’t find an order with that info 😕  
+`I couldn’t find an order with that info 😕  
 
-        Please try again with:
-        • Order number
-        • Phone
-        • Email  
-        
-        Or type *HUMAN* for help 👤`
+Please try again with:
+• Order number
+• Phone
+• Email  
+
+Or type *HUMAN* for help 👤`
         );
         
       } else {
         const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
         let reply = `📦 Order ${order.name}
-    💳 ${order.displayFinancialStatus}
-    🚚 ${order.displayFulfillmentStatus}`;
+💳 ${order.displayFinancialStatus}
+🚚 ${order.displayFulfillmentStatus}`;
 
         if (tracking?.url) {
           reply += `
 
-        🔗 Track your shipment:
-        ${tracking.url}`;
+🔗 Track your shipment:
+${tracking.url}`;
         } else {
           reply += `
-    📍 Tracking will be available once shipped`;
+📍 Tracking will be available once shipped`;
         }
 
         await sendWhatsAppText(from, reply);
@@ -480,8 +489,9 @@ app.post('/webhook', async (req, res) => {
     }
 
     let reply = MSG_FALLBACK;
-
-    if (intent === 'order') reply = MSG_ORDER;
+    
+    if (intent === 'greeting') reply = WELCOME_MESSAGE;
+    else if (intent === 'order') reply = MSG_ORDER;
     else if (intent === 'return') reply = MSG_RETURN;
     else if (intent === 'price') reply = MSG_PRICE;
     else if (intent === 'install') reply = MSG_INSTALL;
@@ -495,23 +505,23 @@ app.post('/webhook', async (req, res) => {
       if (isBusinessHours()) {
         reply = `Connecting you to our support team 👤
 
-      🕐 We’re available now
-      📧 ${SUPPORT_CONTACT}
+🕐 We’re available now
+📧 ${SUPPORT_CONTACT}
 
-      Please briefly describe your issue 🙏`;
+Please briefly describe your issue 🙏`;
         } else {
           reply = `Our team is currently offline 🌙
 
-    🕐 Business hours:
-    10 AM – 7 PM (Mon–Sat)
-          
-    Meanwhile, I can help with:
-      • Order tracking
-      • Product details
-      • Pricing & shipping
-          
-    Or email us:
-      ${SUPPORT_CONTACT}`;
+🕐 Business hours:
+10 AM – 7 PM (Mon–Sat)
+      
+Meanwhile, I can help with:
+  • Order tracking
+  • Product details
+  • Pricing & shipping
+      
+Or email us:
+${SUPPORT_CONTACT}`;
         }
       }
          
