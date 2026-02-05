@@ -267,8 +267,14 @@ const MSG_HUMAN = `Connecting you to support 👤
 🕐 10 AM – 7 PM
 📧 ${SUPPORT_CONTACT}`;
 
-const MSG_FALLBACK = `Please type:
-TRACK | PRICE | ORDER | HUMAN`;
+const MSG_FALLBACK = `I can help you with 😊
+
+• Track your order
+• Product details
+• Pricing & offers
+• Talk to human
+
+Just type what you need 👇`;
 
 const MSG_PRODUCT = `Great choice! 🔥 Turbo Thrill V5 Obsidian special:
 
