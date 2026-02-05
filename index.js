@@ -217,6 +217,7 @@ I can help you with:
 3️⃣ Pricing & offers  
 4️⃣ Place order  
 5️⃣ Talk to human 👤  
+6️⃣ Installation guide
 
 Reply with the *number* or your question 😊`;
 
@@ -248,11 +249,35 @@ const MSG_PRICE = `Pricing 💰
 
 Order → ${WEBSITE_LINK}`;
 
-const MSG_INSTALL = `Installation 🛠️
-1. Clean sole
-2. Stick slider
-3. Press 60 sec
-4. Wait 24 hrs
+const MSG_INSTALL = `Installation Guide 🛠️ (Read before use)
+
+1️⃣ CLEAN  
+• Clean shoe sole with alcohol wipe  
+• Surface must be dry & dust-free  
+
+2️⃣ PEEL  
+• Peel off red backing  
+• ❌ Do NOT touch sticky surface  
+
+3️⃣ STICK  
+• Place on flat sole area  
+• Press firmly for 30–60 seconds  
+
+4️⃣ WAIT  
+• Wait 10–15 minutes before riding  
+• ✅ Best grip after 30 minutes  
+
+⚠️ IMPORTANT:
+• One-time use product (cannot remove/reuse)  
+• Use only on dry roads  
+• Sparks depend on speed & road surface  
+
+🚫 DO NOT:
+• Install on dusty/oily soles  
+• Ride immediately after sticking  
+• Try to remove & reuse  
+
+Best on rubber / flat sole shoes 👟
 
 Demo:
 ${DEMO_VIDEO_LINK}`;
@@ -480,13 +505,14 @@ ${tracking.url}`;
 
     let intent;
 
-    if (['1','2','3','4','5'].includes(text.trim())) {
+    if (['1','2','3','4','5','6'].includes(text.trim())) {
       const map = {
         '1': 'track',
         '2': 'product',
         '3': 'price',
         '4': 'order',
-        '5': 'human'
+        '5': 'human',
+        '6': 'install'
       };
       intent = map[text.trim()];
     } else {
