@@ -158,6 +158,14 @@ function detectOrderLookupType(text = '') {
   return { type: 'unknown', query: null };
 }
 
+function looksLikeOrderLookup(text = '') {
+  const t = text.trim();
+  if (t.startsWith('#')) return true;
+  if (t.includes('@')) return true;
+  if (t.replace(/\D/g, '').length >= 10) return true;
+  return false;
+}
+
 function detectIntent(text = '') {
   const t = text.toLowerCase().trim();
 
@@ -485,6 +493,46 @@ ${tracking.url}`;
       intent = detectIntent(text);
     }
 
+    // 🔁 User sent order info directly (even without typing TRACK)
+    if (
+      currentStep === STEP.IDLE &&
+      looksLikeOrderLookup(normalizedText)
+    ) {
+      const order = await findOrderByLookup(normalizedText);
+    
+      if (!order) {
+        await sendWhatsAppText(
+          from,
+    `I couldn’t find an order with that info 😕  
+    
+    Please try again with:
+    • Order number
+    • Phone
+    • Email  
+    
+    Or type *HUMAN* for help 👤`
+        );
+      } else {
+        const tracking = order.fulfillments?.[0]?.trackingInfo?.[0];
+        let reply = `📦 Order ${order.name}
+    💳 ${order.displayFinancialStatus}
+    🚚 ${order.displayFulfillmentStatus}`;
+    
+        if (tracking?.url) {
+          reply += `
+    
+    🔗 Track your shipment:
+    ${tracking.url}`;
+        } else {
+          reply += `
+    📍 Tracking will be available once shipped`;
+        }
+    
+        await sendWhatsAppText(from, reply);
+      }
+    
+      return res.sendStatus(200);
+    }
 
     if (intent === 'track') {
       await sendWhatsAppText(from, MSG_TRACK_REQUEST);
