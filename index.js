@@ -279,8 +279,7 @@ const MSG_INSTALL = `Installation Guide 🛠️ (Read before use)
 
 Best on rubber / flat sole shoes 👟
 
-Demo:
-${DEMO_VIDEO_LINK}`;
+Type *DEMO* to watch installation video 🎥`;
 
 const MSG_BULK = `Bulk orders 👥
 Visit:
@@ -305,6 +304,7 @@ const MSG_FALLBACK = `I can help you with 😊
 • Track your order
 • Product details
 • Pricing & offers
+• Installation guide
 • Talk to human
 
 Just type what you need 👇`;
